@@ -1,0 +1,7 @@
+names:
+- obus
+nc: 1
+path: C:\Users\CASPER\Desktop\drone_detection\training_data\datasets
+test: test/images
+train: train/images
+val: val/images

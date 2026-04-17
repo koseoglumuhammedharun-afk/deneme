@@ -1,0 +1,31 @@
+# Core ML/CV Dependencies
+numpy>=1.24.0,<2.0.0
+opencv-python>=4.10.0
+ultralytics==8.4.35
+
+# Data Processing
+pandas>=2.0.0
+openpyxl>=3.1.0
+ExifRead>=3.0.0
+
+# GUI
+PyQt5>=5.15.0
+
+# Image Processing
+Pillow>=10.0.0
+
+# Additional utilities
+PyYAML>=6.0
+requests>=2.25.0
+matplotlib>=3.8.0
+scipy>=1.10.0
+
+# ÖNEMLİ:
+# torch / torchvision / torchaudio burada bilinçli olarak YOK.
+# Bunları ayrı kur:
+#
+# GPU (RTX 3060 / CUDA 12.1 wheel):
+# python -m pip install --index-url https://download.pytorch.org/whl/cu121 torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1
+#
+# CPU:
+# python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1

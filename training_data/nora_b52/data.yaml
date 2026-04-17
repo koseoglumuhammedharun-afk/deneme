@@ -1,0 +1,9 @@
+path: C:\Users\CASPER\Desktop\drone_detection\training_data\nora_b52
+train: images/train
+val: images/val
+test: images/test
+nc: 3
+names:
+- obus
+- nora_b52
+- zuzana
