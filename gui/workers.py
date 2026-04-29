@@ -54,6 +54,39 @@ class AnalysisWorker(QThread):
             logger.error(f"Analiz hatasi: {e}")
             self.error_occurred.emit(str(e))
 
+    def _base_result_payload(self, detection: dict, metadata: dict, file_type: str) -> dict:
+        """Ortak analiz sonuc alanlarini olustur."""
+        return {
+            "filename": Path(self.file_path).name,
+            "file_type": file_type,
+            "detected": detection.get("detected", False),
+            "confidence": detection.get("confidence", 0.0),
+            "capture_date": metadata["capture_date"],
+            "capture_time": metadata["capture_time"],
+            "analysis_date": datetime.now().strftime(config.REPORT_DATE_FORMAT),
+            "analysis_time": datetime.now().strftime(config.REPORT_TIME_FORMAT),
+            "analysis_datetime": datetime.now().isoformat(),
+            "gps_latitude": metadata.get("gps_latitude"),
+            "gps_longitude": metadata.get("gps_longitude"),
+            "distance_m": None,
+            "crop_image": detection.get("crop"),
+            "crop_items": detection.get("crop_items", []),
+            "crop_count": detection.get("crop_count", 0),
+            "frame_detection_count": detection.get("frame_detection_count", 0),
+            "camera_make": metadata.get("camera_make"),
+            "camera_model": metadata.get("camera_model"),
+            "weapon_type": detection.get("weapon_type"),
+            "weapon_display": detection.get("weapon_display"),
+            "class_name": detection.get("class_name"),
+            "part_type": detection.get("part_type"),
+            "part_display": detection.get("part_display"),
+            "detection_level": detection.get("detection_level"),
+            "evidence_summary": detection.get("evidence_summary"),
+            "detections": detection.get("detections", []),
+            "detection_count": detection.get("detection_count", 0),
+            "class_counts": detection.get("class_counts", {}),
+        }
+
     def _analyze_image(self):
         """Tek bir resim analiz et"""
         try:
@@ -62,31 +95,19 @@ class AnalysisWorker(QThread):
             detection = self.detector.detect_in_image(self.file_path)
             metadata = self.metadata_extractor.extract_image_metadata(self.file_path)
 
-            self.results = {
-                "filename": Path(self.file_path).name,
-                "file_type": "image",
-                "detected": detection["detected"],
-                "confidence": detection["confidence"],
-                "capture_date": metadata["capture_date"],
-                "capture_time": metadata["capture_time"],
-                "analysis_date": datetime.now().strftime(config.REPORT_DATE_FORMAT),
-                "analysis_time": datetime.now().strftime(config.REPORT_TIME_FORMAT),
-                "analysis_datetime": datetime.now().isoformat(),
-                "gps_latitude": metadata.get("gps_latitude"),
-                "gps_longitude": metadata.get("gps_longitude"),
-                "distance_m": None,
+            self.results = self._base_result_payload(detection, metadata, "image")
+            self.results.update({
                 "time_in_video": None,
-                "crop_image": detection.get("crop"),
                 "annotated_image": detection.get("annotated_image"),
                 "original_image": detection.get("image"),
-                "camera_make": metadata.get("camera_make"),
-                "camera_model": metadata.get("camera_model"),
-                "weapon_type": detection.get("weapon_type"),
-                "class_name": detection.get("class_name"),
-            }
+            })
 
-            if detection["detected"]:
-                self.progress_update.emit(f"Tespit bulundu! Guven: {detection['confidence']:.2%}")
+            if detection.get("detected"):
+                msg = (
+                    f"Tespit bulundu! Guven: {detection.get('confidence', 0):.2%} | "
+                    f"{detection.get('evidence_summary') or detection.get('class_name')}"
+                )
+                self.progress_update.emit(msg)
             else:
                 self.progress_update.emit("Tespit bulunamadi")
 
@@ -102,37 +123,27 @@ class AnalysisWorker(QThread):
             def progress_callback(current_frame, total_frames, confidence):
                 self.frame_progress.emit(current_frame, total_frames, confidence)
                 self.progress_update.emit(
-                    f"Frame {current_frame}/{total_frames} - Guven: {confidence:.2%}"
+                    f"Frame {current_frame}/{total_frames} - En yuksek guven: {confidence:.2%}"
                 )
 
             detection = self.detector.detect_in_video(self.file_path, progress_callback)
             metadata = self.metadata_extractor.extract_video_metadata(self.file_path)
 
-            self.results = {
-                "filename": Path(self.file_path).name,
-                "file_type": "video",
-                "detected": detection["detected"],
-                "confidence": detection["confidence"],
-                "capture_date": metadata["capture_date"],
-                "capture_time": metadata["capture_time"],
-                "analysis_date": datetime.now().strftime(config.REPORT_DATE_FORMAT),
-                "analysis_time": datetime.now().strftime(config.REPORT_TIME_FORMAT),
-                "analysis_datetime": datetime.now().isoformat(),
-                "gps_latitude": metadata.get("gps_latitude"),
-                "gps_longitude": metadata.get("gps_longitude"),
-                "distance_m": None,
+            self.results = self._base_result_payload(detection, metadata, "video")
+            self.results.update({
                 "time_in_video": detection.get("timestamp_mmss"),
-                "crop_image": detection.get("crop"),
                 "annotated_image": detection.get("annotated_frame"),
                 "original_image": detection.get("detection_frame"),
                 "fps": metadata.get("fps"),
                 "total_frames": metadata.get("total_frames"),
-                "weapon_type": detection.get("weapon_type"),
-                "class_name": detection.get("class_name"),
-            }
+            })
 
-            if detection["detected"]:
-                msg = f"Tespit: {detection['timestamp_mmss']} | Guven: {detection['confidence']:.2%}"
+            if detection.get("detected"):
+                msg = (
+                    f"Tespit: {detection.get('timestamp_mmss')} | "
+                    f"Guven: {detection.get('confidence', 0):.2%} | "
+                    f"{detection.get('evidence_summary') or detection.get('class_name')}"
+                )
                 self.progress_update.emit(msg)
             else:
                 self.progress_update.emit("Videoda tespit bulunamadi")
@@ -210,8 +221,13 @@ class LiveVideoWorker(QThread):
         return image.copy()
 
     def _annotate_frame(self, frame):
-        """Frame uzerine mavi kutu ve etiket ciz"""
-        results = self.detector.model(frame, device=self.detector.device, verbose=False)
+        """Frame uzerine kutu ve etiket ciz"""
+        results = self.detector.model(
+            frame,
+            device=self.detector.device,
+            conf=self.detector._model_confidence_value(),
+            verbose=False,
+        )
         annotated = frame.copy()
         detections_for_log = []
 
@@ -227,6 +243,7 @@ class LiveVideoWorker(QThread):
             current_time_text = self._frame_to_time_text(self.frame_counter)
 
             for i, conf in enumerate(confidences):
+                conf = float(conf)
                 if conf < self.detector.confidence_threshold:
                     continue
 
@@ -235,13 +252,15 @@ class LiveVideoWorker(QThread):
                 box = boxes.xyxy[i].cpu().numpy().astype(int)
                 cls_id = int(class_ids[i]) if len(class_ids) > i else 0
                 class_name = self.detector._resolve_class_name(results[0], cls_id)
+                display_name = config.get_class_display_name(class_name)
+                decision = config.get_weapon_decision(class_name, conf)
 
                 x1, y1, x2, y2 = box[0], box[1], box[2], box[3]
 
                 cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
                 cv2.putText(
                     annotated,
-                    f"{class_name} {conf:.2f}",
+                    f"{display_name} {conf:.2f}",
                     (x1, max(20, y1 - 10)),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.65,
@@ -250,7 +269,7 @@ class LiveVideoWorker(QThread):
                 )
 
                 detections_for_log.append(
-                    f"{current_time_text} | {class_name} | {conf:.2%}"
+                    f"{current_time_text} | {decision} | {conf:.2%}"
                 )
 
         return annotated, detections_for_log

@@ -1,0 +1,1912 @@
+﻿
+  main.py:36:)
+  main.py:37:from PyQt5.QtCore import Qt, QObject, pyqtSignal
+, QThread
+  main.py:38:from PyQt5.QtGui import QPixmap, QImage
+  main.py:39:
+> main.py:40:import config
+  main.py:41:from src import HowitzerDetector, MetadataExtrac
+tor, ReportGenerator, ModelTrainer
+  main.py:42:from src.utils import setup_logging, validate_fi
+le, get_file_preview
+  main.py:43:from gui import (
+  main.py:44:    create_analysis_ui,
+  main.py:112:        category = self.payload.get("category",
+ "default")
+  main.py:113:        epochs = self.payload.get("epochs", 50)
+  main.py:114:        batch_size = self.payload.get("batch_si
+ze", 16)
+  main.py:115:        imgsz = self.payload.get("imgsz", 640)
+> main.py:116:        class_names = self.payload.get("class_n
+ames") or list(getattr(config, "CLASS_NAMES", ["obus"]))
+  main.py:117:
+  main.py:118:        self._emit_progress(0, f"Kategori '{cat
+egory}' icin egitim hazirlaniyor...")
+  main.py:119:        self.log_update.emit(f"Kategori '{categ
+ory}' icin model egitimi baslaniyor...")
+  main.py:120:        self.log_update.emit(f"Siniflar: {class
+_names}")
+  main.py:165:
+  main.py:166:    def _run_prepare_combined_dataset(self):
+  main.py:167:        source_categories = self.payload.get("s
+ource_categories") or []
+  main.py:168:        target_category = self.payload.get("tar
+get_category", "weapon_dataset")
+> main.py:169:        class_names = self.payload.get("class_n
+ames") or list(getattr(config, "CLASS_NAMES", ["obus"]))
+  main.py:170:
+  main.py:171:        self._emit_progress(0, "Birlesik datase
+t hazirlaniyor...")
+  main.py:172:        self.log_update.emit("Birlesik dataset 
+hazirlama basladi...")
+  main.py:173:        self.log_update.emit(f"Kaynak kategoril
+er: {source_categories}")
+  main.py:219:        target_category = self.payload.get("tar
+get_category", "weapon_dataset")
+  main.py:220:        epochs = self.payload.get("epochs", 50)
+  main.py:221:        batch_size = self.payload.get("batch_si
+ze", 16)
+  main.py:222:        imgsz = self.payload.get("imgsz", 640)
+> main.py:223:        class_names = self.payload.get("class_n
+ames") or list(getattr(config, "CLASS_NAMES", ["obus"]))
+  main.py:224:
+  main.py:225:        self._emit_progress(0, "Birlesik final 
+model egitimi hazirlaniyor...")
+  main.py:226:        self.log_update.emit("Birlesik final mo
+del egitimi baslaniyor...")
+  main.py:227:        self.log_update.emit(f"Kaynak kategoril
+er: {source_categories}")
+  main.py:326:
+  main.py:327:    def init_ui(self):
+  main.py:328:        """Ana UI'yi baslat"""
+  main.py:329:        self.setWindowTitle("Drone Obus Tespit 
+Sistemi")
+> main.py:330:        self.setGeometry(50, 50, config.WINDOW_
+WIDTH, config.WINDOW_HEIGHT)
+  main.py:331:
+  main.py:332:        central_widget = QWidget()
+  main.py:333:        self.setCentralWidget(central_widget)
+  main.py:334:        main_layout = QVBoxLayout()
+  main.py:356:        main_layout.addWidget(self.tabs)
+  main.py:357:        central_widget.setLayout(main_layout)
+  main.py:358:
+  main.py:359:        self.progress_bar = QProgressBar()
+> main.py:360:        self.progress_bar.setValue(0)
+  main.py:361:        self.progress_bar.setVisible(False)
+> main.py:362:        self.progress_bar.setMinimumHeight(25)
+  main.py:363:        main_layout.insertWidget(1, self.progre
+ss_bar)
+  main.py:364:
+  main.py:365:    # =========================================
+================
+  main.py:366:    # ANALIZ METODLARI
+  main.py:456:        except Exception as e:
+  main.py:457:            self.log(f"Onizleme gosterme hatasi
+: {e}")
+  main.py:458:
+  main.py:459:    def update_threshold(self, *_args):
+> main.py:460:        """Guven esigini guncelle"""
+  main.py:461:        value = self.threshold_slider.value() /
+ 100.0
+  main.py:462:        self.threshold_value_label.setText(f"{v
+alue:.0%}")
+  main.py:463:        if self.detector:
+> main.py:464:            self.detector.set_confidence_thresh
+old(value)
+  main.py:465:
+  main.py:466:    def start_analysis(self):
+  main.py:467:        """Analiz baslat"""
+  main.py:468:        if not self.selected_files:
+  main.py:479:
+  main.py:480:        self.log(f"Analiz baslaniyor: {len(self
+.selected_files)} dosya")
+  main.py:481:        self.analyze_btn.setEnabled(False)
+  main.py:482:        self.progress_bar.setVisible(True)
+> main.py:483:        self.progress_bar.setValue(0)
+  main.py:484:
+  main.py:485:        self._analyze_next_file()
+  main.py:486:
+  main.py:487:    def _analyze_next_file(self):
+  main.py:513:
+  main.py:514:        self.analysis_thread = analysis_worker
+  main.py:515:        self.analysis_thread.start()
+  main.py:516:
+> main.py:517:    def update_frame_progress(self, current, to
+tal, confidence):
+  main.py:518:        """Video analizi sirasinda ilerleme gun
+celle"""
+  main.py:519:        if len(self.selected_files) == 1 and to
+tal > 0:
+  main.py:520:            progress = int((current / total) * 
+100)
+> main.py:521:            self.progress_bar.setValue(progress
+)
+  main.py:522:
+  main.py:523:    def on_analysis_complete(self, results):
+  main.py:524:        """Analiz tamamlandiginda"""
+  main.py:525:        self.analysis_results = results
+  main.py:528:        self.log("Analiz tamamlandi")
+  main.py:529:
+  main.py:530:        if len(self.selected_files) > 1:
+  main.py:531:            overall = int(((self.current_analys
+is_index + 1) / len(self.selected_files)) * 100)
+> main.py:532:            self.progress_bar.setValue(overall)
+  main.py:533:
+  main.py:534:        self.current_analysis_index += 1
+  main.py:535:        self._analyze_next_file()
+  main.py:536:
+  main.py:540:        QMessageBox.critical(self, "Analiz Hata
+si", f"Analiz basarisiz:\n{error_msg}")
+  main.py:541:
+  main.py:542:        if len(self.selected_files) > 1:
+  main.py:543:            overall = int(((self.current_analys
+is_index + 1) / len(self.selected_files)) * 100)
+> main.py:544:            self.progress_bar.setValue(overall)
+  main.py:545:
+  main.py:546:        self.current_analysis_index += 1
+  main.py:547:        self._analyze_next_file()
+  main.py:548:
+  main.py:549:    def update_results_display(self):
+  main.py:550:        """Sonuc labellerini guncelle"""
+  main.py:551:        if not self.analysis_results:
+  main.py:552:            self.status_value.setText("N/A")
+> main.py:553:            self.conf_value.setText("N/A")
+  main.py:554:            self.capture_date_value.setText("N/
+A")
+  main.py:555:            self.capture_time_value.setText("N/
+A")
+  main.py:556:            self.gps_value.setText("N/A")
+  main.py:557:            self.time_video_value.setText("N/A"
+)
+  main.py:564:        detected = self.analysis_results.get("d
+etected", False)
+  main.py:565:        self.status_value.setText("EVET" if det
+ected else "HAYIR")
+  main.py:566:        self.status_value.setStyleSheet("color:
+ green;" if detected else "color: red;")
+  main.py:567:
+> main.py:568:        confidence = self.analysis_results.get(
+"confidence", 0)
+> main.py:569:        self.conf_value.setText(f"{confidence:.
+2%}")
+  main.py:570:
+  main.py:571:        self.capture_date_value.setText(self.an
+alysis_results.get("capture_date", "N/A"))
+  main.py:572:        self.capture_time_value.setText(self.an
+alysis_results.get("capture_time", "N/A"))
+  main.py:573:
+  main.py:600:            return
+  main.py:601:
+  main.py:602:        crop_viewer = CropViewerWindow(
+  main.py:603:            self.analysis_results["crop_image"]
+,
+> main.py:604:            self.analysis_results.get("confiden
+ce", 0),
+  main.py:605:            self,
+  main.py:606:        )
+  main.py:607:        crop_viewer.exec_()
+  main.py:608:
+  main.py:693:            self.live_video_label.clear()
+  main.py:694:            self.live_video_label.setText("Canl
+i analiz goruntusu burada gosterilecek")
+  main.py:695:        if hasattr(self, "live_timeline_slider"
+):
+  main.py:696:            self.live_timeline_slider.blockSign
+als(True)
+> main.py:697:            self.live_timeline_slider.setRange(
+0, 0)
+> main.py:698:            self.live_timeline_slider.setValue(
+0)
+  main.py:699:            self.live_timeline_slider.blockSign
+als(False)
+  main.py:700:        if hasattr(self, "live_current_time_lab
+el"):
+  main.py:701:            self.live_current_time_label.setTex
+t("00:00")
+  main.py:702:        if hasattr(self, "live_total_time_label
+"):
+  main.py:728:            last_text = None
+  main.py:729:
+  main.py:730:            if results and len(results[0].boxes
+) > 0:
+  main.py:731:                boxes = results[0].boxes
+> main.py:732:                confidences = boxes.conf.cpu().
+numpy()
+  main.py:733:                class_ids = (
+  main.py:734:                    boxes.cls.cpu().numpy().ast
+ype(int)
+  main.py:735:                    if hasattr(boxes, "cls")
+  main.py:736:                    else []
+  main.py:737:                )
+  main.py:738:
+> main.py:739:                for i, conf in enumerate(confid
+ences):
+> main.py:740:                    if conf < self.detector.con
+fidence_threshold:
+  main.py:741:                        continue
+  main.py:742:
+  main.py:743:                    box = boxes.xyxy[i].cpu().n
+umpy().astype(int)
+  main.py:744:                    cls_id = int(class_ids[i]) 
+if len(class_ids) > i else 0
+  main.py:745:                    class_name = self.detector.
+_resolve_class_name(results[0], cls_id)
+  main.py:746:
+> main.py:747:                    display_name = getattr(conf
+ig, "get_class_display_name", lambda x: x)(class_name)
+  main.py:748:
+  main.py:749:                    x1, y1, x2, y2 = box[0], bo
+x[1], box[2], box[3]
+  main.py:750:
+  main.py:751:                    cv2.rectangle(annotated, (x
+1, y1), (x2, y2), (255, 0, 0), 2)
+  main.py:752:                    cv2.putText(
+  main.py:753:                        annotated,
+> main.py:754:                        f"{display_name} {conf:
+.2f}",
+  main.py:755:                        (x1, max(20, y1 - 10)),
+  main.py:756:                        cv2.FONT_HERSHEY_SIMPLE
+X,
+  main.py:757:                        0.65,
+  main.py:758:                        (255, 0, 0),
+  main.py:759:                        2,
+  main.py:760:                    )
+> main.py:761:                    last_text = f"Son tespit: {
+display_name} | {conf:.2%}"
+  main.py:762:
+  main.py:763:            return annotated, last_text
+  main.py:764:        except Exception as e:
+  main.py:765:            self.log(f"Canli onizleme annotate 
+hatasi: {e}")
+  main.py:806:            cap.release()
+  main.py:807:
+  main.py:808:        if hasattr(self, "live_timeline_slider"
+):
+  main.py:809:            self.live_timeline_slider.blockSign
+als(True)
+> main.py:810:            self.live_timeline_slider.setRange(
+0, max(0, self.live_total_frames - 1))
+> main.py:811:            self.live_timeline_slider.setValue(
+0)
+  main.py:812:            self.live_timeline_slider.blockSign
+als(False)
+  main.py:813:
+  main.py:814:        if hasattr(self, "live_current_time_lab
+el"):
+  main.py:815:            self.live_current_time_label.setTex
+t("00:00")
+  main.py:992:        self.live_video_fps = fps
+  main.py:993:
+  main.py:994:        if hasattr(self, "live_timeline_slider"
+):
+  main.py:995:            self.live_timeline_slider.blockSign
+als(True)
+> main.py:996:            self.live_timeline_slider.setRange(
+0, max(0, total_frames - 1))
+  main.py:997:            self.live_timeline_slider.blockSign
+als(False)
+  main.py:998:
+  main.py:999:        if hasattr(self, "live_total_time_label
+"):
+  main.py:1000:            self.live_total_time_label.setText
+(total_time_text)
+  main.py:1004:        self.live_start_frame = current_frame
+  main.py:1005:
+  main.py:1006:        if not self.live_slider_dragging and h
+asattr(self, "live_timeline_slider"):
+  main.py:1007:            self.live_timeline_slider.blockSig
+nals(True)
+> main.py:1008:            self.live_timeline_slider.setValue
+(current_frame)
+  main.py:1009:            self.live_timeline_slider.blockSig
+nals(False)
+  main.py:1010:
+  main.py:1011:        if hasattr(self, "live_current_time_la
+bel"):
+  main.py:1012:            self.live_current_time_label.setTe
+xt(current_time_text)
+  main.py:1040:    # EGITIM METODLARI - KATEGORI / ICERIK
+  main.py:1041:    # ========================================
+=================
+  main.py:1042:
+  main.py:1043:    def _training_root(self) -> Path:
+> main.py:1044:        return Path(getattr(config, "TRAINING_
+DATA_DIR", Path(config.PROJECT_ROOT) / "training_data"))
+  main.py:1045:
+  main.py:1046:    def _get_available_categories(self):
+  main.py:1047:        """training_data altindaki mevcut kate
+gorileri getir"""
+  main.py:1048:        training_data_dir = self._training_roo
+t()
+  main.py:1217:        if dialog.exec_() == VideoFrameExtract
+ionDialog.Accepted:
+  main.py:1218:            values = dialog.get_values()
+  main.py:1219:
+  main.py:1220:            self.training_progress.setVisible(
+True)
+> main.py:1221:            self.training_progress.setValue(0)
+  main.py:1222:            self.train_btn.setEnabled(False)
+  main.py:1223:
+  main.py:1224:            try:
+  main.py:1225:                self.training_log.append(f"Vid
+eo isleniyor: {Path(video_path).name}")
+  main.py:1515:
+  main.py:1516:        if hasattr(self, "training_progress"):
+  main.py:1517:            self.training_progress.setVisible(
+True)
+  main.py:1518:            if busy:
+> main.py:1519:                self.training_progress.setValu
+e(0)
+  main.py:1520:
+  main.py:1521:        if hasattr(self, "training_progress_la
+bel"):
+  main.py:1522:            self.training_progress_label.setTe
+xt("Calisiyor..." if busy else "Hazir")
+  main.py:1523:
+  main.py:1530:            self.training_progress.setVisible(
+True)
+  main.py:1531:
+  main.py:1532:            if percent >= 0:
+  main.py:1533:                percent = max(0, min(100, int(
+percent)))
+> main.py:1534:                self.training_progress.setValu
+e(percent)
+  main.py:1535:
+  main.py:1536:        if hasattr(self, "training_progress_la
+bel"):
+  main.py:1537:            if percent >= 0:
+  main.py:1538:                self.training_progress_label.s
+etText(f"%{percent} - {message}")
+  main.py:1571:        self._append_training_log(message)
+  main.py:1572:
+  main.py:1573:        if hasattr(self, "training_progress"):
+  main.py:1574:            self.training_progress.setVisible(
+True)
+> main.py:1575:            self.training_progress.setValue(10
+0)
+  main.py:1576:
+  main.py:1577:        if hasattr(self, "training_progress_la
+bel"):
+  main.py:1578:            self.training_progress_label.setTe
+xt("Tamamlandi")
+  main.py:1579:
+  main.py:1643:            "category": category,
+  main.py:1644:            "epochs": self.epoch_spinbox.value
+(),
+  main.py:1645:            "batch_size": self.batch_spinbox.v
+alue(),
+  main.py:1646:            "imgsz": self.imgsz_spinbox.value(
+),
+> main.py:1647:            "class_names": list(getattr(config
+, "CLASS_NAMES", ["obus"])),
+  main.py:1648:        }
+  main.py:1649:
+  main.py:1650:        self._start_training_worker("category_
+train", payload)
+  main.py:1651:
+  main.py:1700:
+  main.py:1701:        payload = {
+  main.py:1702:            "source_categories": source_catego
+ries,
+  main.py:1703:            "target_category": target_category
+,
+> main.py:1704:            "class_names": list(getattr(config
+, "CLASS_NAMES", ["obus"])),
+  main.py:1705:        }
+  main.py:1706:
+  main.py:1707:        self._start_training_worker("prepare_c
+ombined", payload)
+  main.py:1708:
+  main.py:1734:            "target_category": target_category
+,
+  main.py:1735:            "epochs": self.epoch_spinbox.value
+(),
+  main.py:1736:            "batch_size": self.batch_spinbox.v
+alue(),
+  main.py:1737:            "imgsz": self.imgsz_spinbox.value(
+),
+> main.py:1738:            "class_names": list(getattr(config
+, "CLASS_NAMES", ["obus"])),
+  main.py:1739:        }
+  main.py:1740:
+  main.py:1741:        self._start_training_worker("combined_
+train", payload)
+  main.py:1742:
+  main.py:1744:    # EGITIM METODLARI - DATASET ANALIZ
+  main.py:1745:    # ========================================
+=================
+  main.py:1746:
+  main.py:1747:    def _class_display_name(self, class_name: 
+str) -> str:
+> main.py:1748:        func = getattr(config, "get_class_disp
+lay_name", None)
+  main.py:1749:        if callable(func):
+  main.py:1750:            return str(func(class_name))
+  main.py:1751:        return str(class_name)
+  main.py:1752:
+  main.py:1806:
+  main.py:1807:        try:
+  main.py:1808:            distribution = self.model_trainer.
+get_label_distribution(
+  main.py:1809:                category=category,
+> main.py:1810:                class_names=list(getattr(confi
+g, "CLASS_NAMES", ["obus"])),
+  main.py:1811:            )
+  main.py:1812:            self._write_dataset_analysis(self.
+_format_distribution_text(distribution))
+  main.py:1813:        except Exception as e:
+  main.py:1814:            QMessageBox.critical(self, "Analiz
+ Hatasi", str(e))
+  main.py:1819:
+  main.py:1820:        try:
+  main.py:1821:            distribution = self.model_trainer.
+get_label_distribution(
+  main.py:1822:                category=category,
+> main.py:1823:                class_names=list(getattr(confi
+g, "CLASS_NAMES", ["obus"])),
+  main.py:1824:            )
+  main.py:1825:            self._write_dataset_analysis(self.
+_format_distribution_text(distribution))
+  main.py:1826:        except Exception as e:
+  main.py:1827:            QMessageBox.critical(self, "Analiz
+ Hatasi", str(e))
+  main.py:1835:                    continue
+  main.py:1836:
+  main.py:1837:                distribution = self.model_trai
+ner.get_label_distribution(
+  main.py:1838:                    category=category,
+> main.py:1839:                    class_names=list(getattr(c
+onfig, "CLASS_NAMES", ["obus"])),
+  main.py:1840:                )
+  main.py:1841:                chunks.append(self._format_dis
+tribution_text(distribution))
+  main.py:1842:
+  main.py:1843:            text = "\n\n" + ("-" * 80) + "\n\n
+"
+  main.py:1866:                self.log_text.setText(new_mess
+age)
+  main.py:1867:
+  main.py:1868:            scrollbar = self.log_text.vertical
+ScrollBar()
+  main.py:1869:            if scrollbar:
+> main.py:1870:                scrollbar.setValue(scrollbar.m
+aximum())
+  main.py:1871:        except Exception:
+  main.py:1872:            pass
+  main.py:1873:
+  main.py:1874:
+  gui\analysis_tab.py:10:    QLabel,
+  gui\analysis_tab.py:11:    QPushButton,
+  gui\analysis_tab.py:12:    QTextEdit,
+  gui\analysis_tab.py:13:    QFrame,
+> gui\analysis_tab.py:14:    QSlider,
+  gui\analysis_tab.py:15:    QSizePolicy,
+  gui\analysis_tab.py:16:)
+  gui\analysis_tab.py:17:from PyQt5.QtCore import Qt
+  gui\analysis_tab.py:18:from PyQt5.QtGui import QFont
+  gui\analysis_tab.py:19:
+> gui\analysis_tab.py:20:import config
+  gui\analysis_tab.py:21:
+  gui\analysis_tab.py:22:
+  gui\analysis_tab.py:23:def _create_value_label(default_text
+="N/A"):
+  gui\analysis_tab.py:24:    """Sonuc deger label'i olustur""
+"
+  gui\analysis_tab.py:79:    control_layout.setContentsMargin
+s(12, 12, 12, 12)
+  gui\analysis_tab.py:80:    control_layout.setSpacing(10)
+  gui\analysis_tab.py:81:
+  gui\analysis_tab.py:82:    parent_window.browse_btn = QPush
+Button("Dosya Sec")
+> gui\analysis_tab.py:83:    parent_window.browse_btn.setMini
+mumHeight(42)
+  gui\analysis_tab.py:84:    parent_window.browse_btn.clicked
+.connect(parent_window.browse_file)
+  gui\analysis_tab.py:85:    control_layout.addWidget(parent_
+window.browse_btn)
+  gui\analysis_tab.py:86:
+  gui\analysis_tab.py:87:    parent_window.analyze_btn = QPus
+hButton("Analizi Baslat")
+> gui\analysis_tab.py:88:    parent_window.analyze_btn.setMin
+imumHeight(42)
+  gui\analysis_tab.py:89:    parent_window.analyze_btn.setEna
+bled(False)
+  gui\analysis_tab.py:90:    parent_window.analyze_btn.clicke
+d.connect(parent_window.start_analysis)
+  gui\analysis_tab.py:91:    control_layout.addWidget(parent_
+window.analyze_btn)
+  gui\analysis_tab.py:92:
+  gui\analysis_tab.py:130:    preview_layout.addWidget(previe
+w_title)
+  gui\analysis_tab.py:131:
+  gui\analysis_tab.py:132:    parent_window.preview_image = Q
+Label("Onizleme burada gosterilecek")
+  gui\analysis_tab.py:133:    parent_window.preview_image.set
+Alignment(Qt.AlignmentFlag.AlignCenter)
+> gui\analysis_tab.py:134:    parent_window.preview_image.set
+MinimumSize(320, 320)
+  gui\analysis_tab.py:135:    parent_window.preview_image.set
+SizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+  gui\analysis_tab.py:136:    parent_window.preview_image.set
+StyleSheet("""
+  gui\analysis_tab.py:137:        QLabel {
+  gui\analysis_tab.py:138:            color: #7F8C8D;
+  gui\analysis_tab.py:159:    threshold_layout = QVBoxLayout(
+)
+  gui\analysis_tab.py:160:    threshold_layout.setContentsMar
+gins(10, 10, 10, 10)
+  gui\analysis_tab.py:161:    threshold_layout.setSpacing(8)
+  gui\analysis_tab.py:162:
+> gui\analysis_tab.py:163:    threshold_title = QLabel("Guven
+ Esigi")
+  gui\analysis_tab.py:164:    threshold_title.setStyleSheet("
+font-weight: bold;")
+  gui\analysis_tab.py:165:    threshold_layout.addWidget(thre
+shold_title)
+  gui\analysis_tab.py:166:
+  gui\analysis_tab.py:167:    threshold_row = QHBoxLayout()
+  gui\analysis_tab.py:168:    threshold_row.setSpacing(10)
+  gui\analysis_tab.py:169:
+> gui\analysis_tab.py:170:    parent_window.threshold_slider 
+= QSlider(Qt.Orientation.Horizontal)
+> gui\analysis_tab.py:171:    parent_window.threshold_slider.
+setRange(
+> gui\analysis_tab.py:172:        int(config.DEFAULT_CONFIDEN
+CE_MIN * 100),
+> gui\analysis_tab.py:173:        int(config.DEFAULT_CONFIDEN
+CE_MAX * 100),
+  gui\analysis_tab.py:174:    )
+> gui\analysis_tab.py:175:    parent_window.threshold_slider.
+setValue(int(config.CONFIDENCE_THRESHOLD * 100))
+  gui\analysis_tab.py:176:    parent_window.threshold_slider.
+setStyleSheet("""
+> gui\analysis_tab.py:177:        QSlider::groove:horizontal 
+{
+  gui\analysis_tab.py:178:            border: 1px solid #BFC9
+CA;
+  gui\analysis_tab.py:179:            height: 8px;
+  gui\analysis_tab.py:180:            background: #EAECEE;
+  gui\analysis_tab.py:181:            border-radius: 4px;
+  gui\analysis_tab.py:182:        }
+> gui\analysis_tab.py:183:        QSlider::sub-page:horizonta
+l {
+  gui\analysis_tab.py:184:            background: #3498DB;
+  gui\analysis_tab.py:185:            border-radius: 4px;
+  gui\analysis_tab.py:186:        }
+> gui\analysis_tab.py:187:        QSlider::handle:horizontal 
+{
+  gui\analysis_tab.py:188:            background: #FFFFFF;
+  gui\analysis_tab.py:189:            border: 1px solid #AEB6
+BF;
+  gui\analysis_tab.py:190:            width: 16px;
+  gui\analysis_tab.py:191:            margin: -5px 0;
+  gui\analysis_tab.py:193:        }
+  gui\analysis_tab.py:194:    """)
+  gui\analysis_tab.py:195:    threshold_row.addWidget(parent_
+window.threshold_slider, 1)
+  gui\analysis_tab.py:196:
+> gui\analysis_tab.py:197:    parent_window.threshold_value_l
+abel = QLabel(f"{config.CONFIDENCE_THRESHOLD:.0%}")
+> gui\analysis_tab.py:198:    parent_window.threshold_value_l
+abel.setMinimumWidth(55)
+  gui\analysis_tab.py:199:    parent_window.threshold_value_l
+abel.setAlignment(Qt.AlignmentFlag.AlignCenter)
+  gui\analysis_tab.py:200:    parent_window.threshold_value_l
+abel.setStyleSheet("""
+  gui\analysis_tab.py:201:        QLabel {
+  gui\analysis_tab.py:202:            color: #1F618D;
+  gui\analysis_tab.py:210:    threshold_row.addWidget(parent_
+window.threshold_value_label)
+  gui\analysis_tab.py:211:
+  gui\analysis_tab.py:212:    threshold_layout.addLayout(thre
+shold_row)
+  gui\analysis_tab.py:213:
+> gui\analysis_tab.py:214:    threshold_hint = QLabel("Modeli
+n tespit guven esigini ayarlayabilirsiniz.")
+  gui\analysis_tab.py:215:    threshold_hint.setStyleSheet("c
+olor: #566573; font-size: 11px;")
+  gui\analysis_tab.py:216:    threshold_layout.addWidget(thre
+shold_hint)
+  gui\analysis_tab.py:217:
+  gui\analysis_tab.py:218:    threshold_frame.setLayout(thres
+hold_layout)
+  gui\analysis_tab.py:245:    grid.addWidget(_create_field_ti
+tle("Tespit Edildi"), 0, 0)
+  gui\analysis_tab.py:246:    parent_window.status_value = _c
+reate_value_label()
+  gui\analysis_tab.py:247:    grid.addWidget(parent_window.st
+atus_value, 0, 1)
+  gui\analysis_tab.py:248:
+> gui\analysis_tab.py:249:    grid.addWidget(_create_field_ti
+tle("Guven Orani"), 1, 0)
+> gui\analysis_tab.py:250:    parent_window.conf_value = _cre
+ate_value_label()
+> gui\analysis_tab.py:251:    grid.addWidget(parent_window.co
+nf_value, 1, 1)
+  gui\analysis_tab.py:252:
+  gui\analysis_tab.py:253:    grid.addWidget(_create_field_ti
+tle("Cekim Tarihi"), 2, 0)
+  gui\analysis_tab.py:254:    parent_window.capture_date_valu
+e = _create_value_label()
+  gui\analysis_tab.py:255:    grid.addWidget(parent_window.ca
+pture_date_value, 2, 1)
+  gui\analysis_tab.py:278:    action_row = QHBoxLayout()
+  gui\analysis_tab.py:279:    action_row.setSpacing(10)
+  gui\analysis_tab.py:280:
+  gui\analysis_tab.py:281:    parent_window.crop_btn = QPushB
+utton("Kirpiyi Goster")
+> gui\analysis_tab.py:282:    parent_window.crop_btn.setMinim
+umHeight(40)
+  gui\analysis_tab.py:283:    parent_window.crop_btn.setEnabl
+ed(False)
+  gui\analysis_tab.py:284:    parent_window.crop_btn.clicked.
+connect(parent_window.view_crop)
+  gui\analysis_tab.py:285:    action_row.addWidget(parent_win
+dow.crop_btn)
+  gui\analysis_tab.py:286:
+  gui\analysis_tab.py:287:    parent_window.export_excel_btn 
+= QPushButton("Excel'e Aktar")
+> gui\analysis_tab.py:288:    parent_window.export_excel_btn.
+setMinimumHeight(40)
+  gui\analysis_tab.py:289:    parent_window.export_excel_btn.
+setEnabled(False)
+  gui\analysis_tab.py:290:    parent_window.export_excel_btn.
+clicked.connect(parent_window.export_excel)
+  gui\analysis_tab.py:291:    action_row.addWidget(parent_win
+dow.export_excel_btn)
+  gui\analysis_tab.py:292:
+  gui\analysis_tab.py:293:    parent_window.export_json_btn =
+ QPushButton("JSON'a Aktar")
+> gui\analysis_tab.py:294:    parent_window.export_json_btn.s
+etMinimumHeight(40)
+  gui\analysis_tab.py:295:    parent_window.export_json_btn.s
+etEnabled(False)
+  gui\analysis_tab.py:296:    parent_window.export_json_btn.c
+licked.connect(parent_window.export_json)
+  gui\analysis_tab.py:297:    action_row.addWidget(parent_win
+dow.export_json_btn)
+  gui\analysis_tab.py:298:
+  gui\analysis_tab.py:323:    log_layout.addWidget(log_title)
+  gui\analysis_tab.py:324:
+  gui\analysis_tab.py:325:    parent_window.log_text = QTextE
+dit()
+  gui\analysis_tab.py:326:    parent_window.log_text.setReadO
+nly(True)
+> gui\analysis_tab.py:327:    parent_window.log_text.setMinim
+umHeight(140)
+  gui\analysis_tab.py:328:    parent_window.log_text.setStyle
+Sheet("""
+  gui\analysis_tab.py:329:        QTextEdit {
+  gui\analysis_tab.py:330:            font-family: Consolas, 
+monospace;
+  gui\analysis_tab.py:331:            font-size: 9px;
+  gui\live_analysis_tab.py:9:    QLabel,
+  gui\live_analysis_tab.py:10:    QPushButton,
+  gui\live_analysis_tab.py:11:    QTextEdit,
+  gui\live_analysis_tab.py:12:    QFrame,
+> gui\live_analysis_tab.py:13:    QSlider,
+  gui\live_analysis_tab.py:14:)
+  gui\live_analysis_tab.py:15:from PyQt5.QtCore import Qt
+  gui\live_analysis_tab.py:16:from PyQt5.QtGui import QFont
+  gui\live_analysis_tab.py:17:
+  gui\live_analysis_tab.py:44:    control_layout.setContentsM
+argins(12, 12, 12, 12)
+  gui\live_analysis_tab.py:45:    control_layout.setSpacing(1
+0)
+  gui\live_analysis_tab.py:46:
+  gui\live_analysis_tab.py:47:    parent_window.live_select_v
+ideo_btn = QPushButton("Video Sec")
+> gui\live_analysis_tab.py:48:    parent_window.live_select_v
+ideo_btn.setMinimumHeight(42)
+  gui\live_analysis_tab.py:49:    parent_window.live_select_v
+ideo_btn.clicked.connect(parent_window.select_live_video)
+  gui\live_analysis_tab.py:50:    control_layout.addWidget(pa
+rent_window.live_select_video_btn)
+  gui\live_analysis_tab.py:51:
+  gui\live_analysis_tab.py:52:    parent_window.live_play_btn
+ = QPushButton("Oynat / Devam Et")
+> gui\live_analysis_tab.py:53:    parent_window.live_play_btn
+.setMinimumHeight(42)
+  gui\live_analysis_tab.py:54:    parent_window.live_play_btn
+.setEnabled(False)
+  gui\live_analysis_tab.py:55:    parent_window.live_play_btn
+.clicked.connect(parent_window.start_live_video_tracking)
+  gui\live_analysis_tab.py:56:    control_layout.addWidget(pa
+rent_window.live_play_btn)
+  gui\live_analysis_tab.py:57:
+  gui\live_analysis_tab.py:58:    parent_window.live_pause_bt
+n = QPushButton("Duraklat")
+> gui\live_analysis_tab.py:59:    parent_window.live_pause_bt
+n.setMinimumHeight(42)
+  gui\live_analysis_tab.py:60:    parent_window.live_pause_bt
+n.setEnabled(False)
+  gui\live_analysis_tab.py:61:    parent_window.live_pause_bt
+n.clicked.connect(parent_window.pause_live_video_tracking)
+  gui\live_analysis_tab.py:62:    control_layout.addWidget(pa
+rent_window.live_pause_btn)
+  gui\live_analysis_tab.py:63:
+  gui\live_analysis_tab.py:64:    parent_window.live_stop_btn
+ = QPushButton("Durdur")
+> gui\live_analysis_tab.py:65:    parent_window.live_stop_btn
+.setMinimumHeight(42)
+  gui\live_analysis_tab.py:66:    parent_window.live_stop_btn
+.setEnabled(False)
+  gui\live_analysis_tab.py:67:    parent_window.live_stop_btn
+.clicked.connect(parent_window.stop_live_video_tracking)
+  gui\live_analysis_tab.py:68:    control_layout.addWidget(pa
+rent_window.live_stop_btn)
+  gui\live_analysis_tab.py:69:
+  gui\live_analysis_tab.py:101:    video_layout.setSpacing(10
+)
+  gui\live_analysis_tab.py:102:
+  gui\live_analysis_tab.py:103:    parent_window.live_video_l
+abel = QLabel("Canli analiz goruntusu burada gosterilecek")
+  gui\live_analysis_tab.py:104:    parent_window.live_video_l
+abel.setAlignment(Qt.AlignmentFlag.AlignCenter)
+> gui\live_analysis_tab.py:105:    parent_window.live_video_l
+abel.setMinimumHeight(420)
+  gui\live_analysis_tab.py:106:    parent_window.live_video_l
+abel.setStyleSheet("""
+  gui\live_analysis_tab.py:107:        QLabel {
+  gui\live_analysis_tab.py:108:            color: #DDDDDD;
+  gui\live_analysis_tab.py:109:            background-color: 
+#111111;
+  gui\live_analysis_tab.py:129:    timeline_layout.setContent
+sMargins(10, 8, 10, 8)
+  gui\live_analysis_tab.py:130:    timeline_layout.setSpacing
+(10)
+  gui\live_analysis_tab.py:131:
+  gui\live_analysis_tab.py:132:    parent_window.live_current
+_time_label = QLabel("00:00")
+> gui\live_analysis_tab.py:133:    parent_window.live_current
+_time_label.setMinimumWidth(55)
+  gui\live_analysis_tab.py:134:    parent_window.live_current
+_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+  gui\live_analysis_tab.py:135:    parent_window.live_current
+_time_label.setStyleSheet("""
+  gui\live_analysis_tab.py:136:        QLabel {
+  gui\live_analysis_tab.py:137:            color: #ECF0F1;
+  gui\live_analysis_tab.py:140:        }
+  gui\live_analysis_tab.py:141:    """)
+  gui\live_analysis_tab.py:142:    timeline_layout.addWidget(
+parent_window.live_current_time_label)
+  gui\live_analysis_tab.py:143:
+> gui\live_analysis_tab.py:144:    parent_window.live_timelin
+e_slider = QSlider(Qt.Orientation.Horizontal)
+> gui\live_analysis_tab.py:145:    parent_window.live_timelin
+e_slider.setRange(0, 0)
+> gui\live_analysis_tab.py:146:    parent_window.live_timelin
+e_slider.setValue(0)
+  gui\live_analysis_tab.py:147:    parent_window.live_timelin
+e_slider.setEnabled(True)
+  gui\live_analysis_tab.py:148:    parent_window.live_timelin
+e_slider.sliderPressed.connect(parent_window.on_live_slider_p
+ressed)
+  gui\live_analysis_tab.py:149:    parent_window.live_timelin
+e_slider.sliderMoved.connect(parent_window.on_live_slider_mov
+ed)
+  gui\live_analysis_tab.py:150:    parent_window.live_timelin
+e_slider.sliderReleased.connect(parent_window.on_live_slider_
+released)
+  gui\live_analysis_tab.py:151:    parent_window.live_timelin
+e_slider.setStyleSheet("""
+> gui\live_analysis_tab.py:152:        QSlider::groove:horizo
+ntal {
+  gui\live_analysis_tab.py:153:            border: 1px solid 
+#566573;
+  gui\live_analysis_tab.py:154:            height: 8px;
+  gui\live_analysis_tab.py:155:            background: #2C3E5
+0;
+  gui\live_analysis_tab.py:156:            border-radius: 4px
+;
+  gui\live_analysis_tab.py:157:        }
+> gui\live_analysis_tab.py:158:        QSlider::sub-page:hori
+zontal {
+  gui\live_analysis_tab.py:159:            background: #3498D
+B;
+  gui\live_analysis_tab.py:160:            border-radius: 4px
+;
+  gui\live_analysis_tab.py:161:        }
+> gui\live_analysis_tab.py:162:        QSlider::handle:horizo
+ntal {
+  gui\live_analysis_tab.py:163:            background: #ECF0F
+1;
+  gui\live_analysis_tab.py:164:            border: 1px solid 
+#BDC3C7;
+  gui\live_analysis_tab.py:165:            width: 16px;
+  gui\live_analysis_tab.py:166:            margin: -5px 0;
+  gui\live_analysis_tab.py:169:    """)
+  gui\live_analysis_tab.py:170:    timeline_layout.addWidget(
+parent_window.live_timeline_slider, 1)
+  gui\live_analysis_tab.py:171:
+  gui\live_analysis_tab.py:172:    parent_window.live_total_t
+ime_label = QLabel("00:00")
+> gui\live_analysis_tab.py:173:    parent_window.live_total_t
+ime_label.setMinimumWidth(55)
+  gui\live_analysis_tab.py:174:    parent_window.live_total_t
+ime_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+  gui\live_analysis_tab.py:175:    parent_window.live_total_t
+ime_label.setStyleSheet("""
+  gui\live_analysis_tab.py:176:        QLabel {
+  gui\live_analysis_tab.py:177:            color: #ECF0F1;
+  gui\analysis_tab.py:10:    QLabel,
+  gui\analysis_tab.py:11:    QPushButton,
+  gui\analysis_tab.py:12:    QTextEdit,
+  gui\analysis_tab.py:13:    QFrame,
+> gui\analysis_tab.py:14:    QSlider,
+  gui\analysis_tab.py:15:    QSizePolicy,
+  gui\analysis_tab.py:16:)
+  gui\analysis_tab.py:17:from PyQt5.QtCore import Qt
+  gui\analysis_tab.py:18:from PyQt5.QtGui import QFont
+  gui\analysis_tab.py:19:
+> gui\analysis_tab.py:20:import config
+  gui\analysis_tab.py:21:
+  gui\analysis_tab.py:22:
+  gui\analysis_tab.py:23:def _create_value_label(default_text
+="N/A"):
+  gui\analysis_tab.py:24:    """Sonuc deger label'i olustur""
+"
+  gui\analysis_tab.py:79:    control_layout.setContentsMargin
+s(12, 12, 12, 12)
+  gui\analysis_tab.py:80:    control_layout.setSpacing(10)
+  gui\analysis_tab.py:81:
+  gui\analysis_tab.py:82:    parent_window.browse_btn = QPush
+Button("Dosya Sec")
+> gui\analysis_tab.py:83:    parent_window.browse_btn.setMini
+mumHeight(42)
+  gui\analysis_tab.py:84:    parent_window.browse_btn.clicked
+.connect(parent_window.browse_file)
+  gui\analysis_tab.py:85:    control_layout.addWidget(parent_
+window.browse_btn)
+  gui\analysis_tab.py:86:
+  gui\analysis_tab.py:87:    parent_window.analyze_btn = QPus
+hButton("Analizi Baslat")
+> gui\analysis_tab.py:88:    parent_window.analyze_btn.setMin
+imumHeight(42)
+  gui\analysis_tab.py:89:    parent_window.analyze_btn.setEna
+bled(False)
+  gui\analysis_tab.py:90:    parent_window.analyze_btn.clicke
+d.connect(parent_window.start_analysis)
+  gui\analysis_tab.py:91:    control_layout.addWidget(parent_
+window.analyze_btn)
+  gui\analysis_tab.py:92:
+  gui\analysis_tab.py:130:    preview_layout.addWidget(previe
+w_title)
+  gui\analysis_tab.py:131:
+  gui\analysis_tab.py:132:    parent_window.preview_image = Q
+Label("Onizleme burada gosterilecek")
+  gui\analysis_tab.py:133:    parent_window.preview_image.set
+Alignment(Qt.AlignmentFlag.AlignCenter)
+> gui\analysis_tab.py:134:    parent_window.preview_image.set
+MinimumSize(320, 320)
+  gui\analysis_tab.py:135:    parent_window.preview_image.set
+SizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+  gui\analysis_tab.py:136:    parent_window.preview_image.set
+StyleSheet("""
+  gui\analysis_tab.py:137:        QLabel {
+  gui\analysis_tab.py:138:            color: #7F8C8D;
+  gui\analysis_tab.py:159:    threshold_layout = QVBoxLayout(
+)
+  gui\analysis_tab.py:160:    threshold_layout.setContentsMar
+gins(10, 10, 10, 10)
+  gui\analysis_tab.py:161:    threshold_layout.setSpacing(8)
+  gui\analysis_tab.py:162:
+> gui\analysis_tab.py:163:    threshold_title = QLabel("Guven
+ Esigi")
+  gui\analysis_tab.py:164:    threshold_title.setStyleSheet("
+font-weight: bold;")
+  gui\analysis_tab.py:165:    threshold_layout.addWidget(thre
+shold_title)
+  gui\analysis_tab.py:166:
+  gui\analysis_tab.py:167:    threshold_row = QHBoxLayout()
+  gui\analysis_tab.py:168:    threshold_row.setSpacing(10)
+  gui\analysis_tab.py:169:
+> gui\analysis_tab.py:170:    parent_window.threshold_slider 
+= QSlider(Qt.Orientation.Horizontal)
+> gui\analysis_tab.py:171:    parent_window.threshold_slider.
+setRange(
+> gui\analysis_tab.py:172:        int(config.DEFAULT_CONFIDEN
+CE_MIN * 100),
+> gui\analysis_tab.py:173:        int(config.DEFAULT_CONFIDEN
+CE_MAX * 100),
+  gui\analysis_tab.py:174:    )
+> gui\analysis_tab.py:175:    parent_window.threshold_slider.
+setValue(int(config.CONFIDENCE_THRESHOLD * 100))
+  gui\analysis_tab.py:176:    parent_window.threshold_slider.
+setStyleSheet("""
+> gui\analysis_tab.py:177:        QSlider::groove:horizontal 
+{
+  gui\analysis_tab.py:178:            border: 1px solid #BFC9
+CA;
+  gui\analysis_tab.py:179:            height: 8px;
+  gui\analysis_tab.py:180:            background: #EAECEE;
+  gui\analysis_tab.py:181:            border-radius: 4px;
+  gui\analysis_tab.py:182:        }
+> gui\analysis_tab.py:183:        QSlider::sub-page:horizonta
+l {
+  gui\analysis_tab.py:184:            background: #3498DB;
+  gui\analysis_tab.py:185:            border-radius: 4px;
+  gui\analysis_tab.py:186:        }
+> gui\analysis_tab.py:187:        QSlider::handle:horizontal 
+{
+  gui\analysis_tab.py:188:            background: #FFFFFF;
+  gui\analysis_tab.py:189:            border: 1px solid #AEB6
+BF;
+  gui\analysis_tab.py:190:            width: 16px;
+  gui\analysis_tab.py:191:            margin: -5px 0;
+  gui\analysis_tab.py:193:        }
+  gui\analysis_tab.py:194:    """)
+  gui\analysis_tab.py:195:    threshold_row.addWidget(parent_
+window.threshold_slider, 1)
+  gui\analysis_tab.py:196:
+> gui\analysis_tab.py:197:    parent_window.threshold_value_l
+abel = QLabel(f"{config.CONFIDENCE_THRESHOLD:.0%}")
+> gui\analysis_tab.py:198:    parent_window.threshold_value_l
+abel.setMinimumWidth(55)
+  gui\analysis_tab.py:199:    parent_window.threshold_value_l
+abel.setAlignment(Qt.AlignmentFlag.AlignCenter)
+  gui\analysis_tab.py:200:    parent_window.threshold_value_l
+abel.setStyleSheet("""
+  gui\analysis_tab.py:201:        QLabel {
+  gui\analysis_tab.py:202:            color: #1F618D;
+  gui\analysis_tab.py:210:    threshold_row.addWidget(parent_
+window.threshold_value_label)
+  gui\analysis_tab.py:211:
+  gui\analysis_tab.py:212:    threshold_layout.addLayout(thre
+shold_row)
+  gui\analysis_tab.py:213:
+> gui\analysis_tab.py:214:    threshold_hint = QLabel("Modeli
+n tespit guven esigini ayarlayabilirsiniz.")
+  gui\analysis_tab.py:215:    threshold_hint.setStyleSheet("c
+olor: #566573; font-size: 11px;")
+  gui\analysis_tab.py:216:    threshold_layout.addWidget(thre
+shold_hint)
+  gui\analysis_tab.py:217:
+  gui\analysis_tab.py:218:    threshold_frame.setLayout(thres
+hold_layout)
+  gui\analysis_tab.py:245:    grid.addWidget(_create_field_ti
+tle("Tespit Edildi"), 0, 0)
+  gui\analysis_tab.py:246:    parent_window.status_value = _c
+reate_value_label()
+  gui\analysis_tab.py:247:    grid.addWidget(parent_window.st
+atus_value, 0, 1)
+  gui\analysis_tab.py:248:
+> gui\analysis_tab.py:249:    grid.addWidget(_create_field_ti
+tle("Guven Orani"), 1, 0)
+> gui\analysis_tab.py:250:    parent_window.conf_value = _cre
+ate_value_label()
+> gui\analysis_tab.py:251:    grid.addWidget(parent_window.co
+nf_value, 1, 1)
+  gui\analysis_tab.py:252:
+  gui\analysis_tab.py:253:    grid.addWidget(_create_field_ti
+tle("Cekim Tarihi"), 2, 0)
+  gui\analysis_tab.py:254:    parent_window.capture_date_valu
+e = _create_value_label()
+  gui\analysis_tab.py:255:    grid.addWidget(parent_window.ca
+pture_date_value, 2, 1)
+  gui\analysis_tab.py:278:    action_row = QHBoxLayout()
+  gui\analysis_tab.py:279:    action_row.setSpacing(10)
+  gui\analysis_tab.py:280:
+  gui\analysis_tab.py:281:    parent_window.crop_btn = QPushB
+utton("Kirpiyi Goster")
+> gui\analysis_tab.py:282:    parent_window.crop_btn.setMinim
+umHeight(40)
+  gui\analysis_tab.py:283:    parent_window.crop_btn.setEnabl
+ed(False)
+  gui\analysis_tab.py:284:    parent_window.crop_btn.clicked.
+connect(parent_window.view_crop)
+  gui\analysis_tab.py:285:    action_row.addWidget(parent_win
+dow.crop_btn)
+  gui\analysis_tab.py:286:
+  gui\analysis_tab.py:287:    parent_window.export_excel_btn 
+= QPushButton("Excel'e Aktar")
+> gui\analysis_tab.py:288:    parent_window.export_excel_btn.
+setMinimumHeight(40)
+  gui\analysis_tab.py:289:    parent_window.export_excel_btn.
+setEnabled(False)
+  gui\analysis_tab.py:290:    parent_window.export_excel_btn.
+clicked.connect(parent_window.export_excel)
+  gui\analysis_tab.py:291:    action_row.addWidget(parent_win
+dow.export_excel_btn)
+  gui\analysis_tab.py:292:
+  gui\analysis_tab.py:293:    parent_window.export_json_btn =
+ QPushButton("JSON'a Aktar")
+> gui\analysis_tab.py:294:    parent_window.export_json_btn.s
+etMinimumHeight(40)
+  gui\analysis_tab.py:295:    parent_window.export_json_btn.s
+etEnabled(False)
+  gui\analysis_tab.py:296:    parent_window.export_json_btn.c
+licked.connect(parent_window.export_json)
+  gui\analysis_tab.py:297:    action_row.addWidget(parent_win
+dow.export_json_btn)
+  gui\analysis_tab.py:298:
+  gui\analysis_tab.py:323:    log_layout.addWidget(log_title)
+  gui\analysis_tab.py:324:
+  gui\analysis_tab.py:325:    parent_window.log_text = QTextE
+dit()
+  gui\analysis_tab.py:326:    parent_window.log_text.setReadO
+nly(True)
+> gui\analysis_tab.py:327:    parent_window.log_text.setMinim
+umHeight(140)
+  gui\analysis_tab.py:328:    parent_window.log_text.setStyle
+Sheet("""
+  gui\analysis_tab.py:329:        QTextEdit {
+  gui\analysis_tab.py:330:            font-family: Consolas, 
+monospace;
+  gui\analysis_tab.py:331:            font-size: 9px;
+  gui\dialogs.py:25:
+  gui\dialogs.py:26:class CropViewerWindow(QDialog):
+  gui\dialogs.py:27:    """Kırpılmış tespit görüntüsünü göste
+ren dialog"""
+  gui\dialogs.py:28:
+> gui\dialogs.py:29:    def __init__(self, crop_image, confid
+ence, parent=None):
+  gui\dialogs.py:30:        super().__init__(parent)
+  gui\dialogs.py:31:        self.crop_image = crop_image
+> gui\dialogs.py:32:        self.confidence = confidence
+  gui\dialogs.py:33:        self.init_ui()
+  gui\dialogs.py:34:
+  gui\dialogs.py:35:    def init_ui(self):
+  gui\dialogs.py:36:        """UI'yi başlat"""
+  gui\dialogs.py:37:        self.setWindowTitle("Tespit Kırpı
+sı Görüntüleyici")
+> gui\dialogs.py:38:        self.setMinimumSize(600, 500)
+  gui\dialogs.py:39:
+  gui\dialogs.py:40:        layout = QVBoxLayout()
+  gui\dialogs.py:41:        layout.setContentsMargins(15, 15,
+ 15, 15)
+  gui\dialogs.py:42:        layout.setSpacing(12)
+  gui\dialogs.py:85:            image_label.setText("Görüntü 
+mevcut değil")
+  gui\dialogs.py:86:
+  gui\dialogs.py:87:        layout.addWidget(image_label)
+  gui\dialogs.py:88:
+> gui\dialogs.py:89:        info_label = QLabel(f"Güven: {sel
+f.confidence:.2%}")
+  gui\dialogs.py:90:        info_font = QFont()
+  gui\dialogs.py:91:        info_font.setPointSize(12)
+  gui\dialogs.py:92:        info_font.setBold(True)
+  gui\dialogs.py:93:        info_label.setFont(info_font)
+  gui\dialogs.py:139:
+  gui\dialogs.py:140:    def init_ui(self):
+  gui\dialogs.py:141:        """Dialog UI'sini oluştur"""
+  gui\dialogs.py:142:        self.setWindowTitle("Video Frame
+ Çıkarma Ayarları")
+> gui\dialogs.py:143:        self.setMinimumWidth(400)
+  gui\dialogs.py:144:
+  gui\dialogs.py:145:        layout = QVBoxLayout()
+  gui\dialogs.py:146:        layout.setContentsMargins(15, 15
+, 15, 15)
+  gui\dialogs.py:147:        layout.setSpacing(12)
+  gui\dialogs.py:160:        frame_interval_layout = QHBoxLay
+out()
+  gui\dialogs.py:161:        frame_interval_layout.addWidget(
+QLabel("Frame Aralığı (her N frame):"))
+  gui\dialogs.py:162:
+  gui\dialogs.py:163:        self.frame_interval_spin = QSpin
+Box()
+> gui\dialogs.py:164:        self.frame_interval_spin.setMini
+mum(1)
+  gui\dialogs.py:165:        self.frame_interval_spin.setMaxi
+mum(30)
+> gui\dialogs.py:166:        self.frame_interval_spin.setValu
+e(5)
+  gui\dialogs.py:167:        frame_interval_layout.addWidget(
+self.frame_interval_spin)
+  gui\dialogs.py:168:
+  gui\dialogs.py:169:        layout.addLayout(frame_interval_
+layout)
+  gui\dialogs.py:170:
+  gui\dialogs.py:172:        max_frames_layout = QHBoxLayout(
+)
+  gui\dialogs.py:173:        max_frames_layout.addWidget(QLab
+el("Maksimum Frame Sayısı:"))
+  gui\dialogs.py:174:
+  gui\dialogs.py:175:        self.max_frames_spin = QSpinBox(
+)
+> gui\dialogs.py:176:        self.max_frames_spin.setMinimum(
+0)  # 0 = sınırsız
+  gui\dialogs.py:177:        self.max_frames_spin.setMaximum(
+10000)
+> gui\dialogs.py:178:        self.max_frames_spin.setValue(0)
+  gui\dialogs.py:179:        max_frames_layout.addWidget(self
+.max_frames_spin)
+  gui\dialogs.py:180:
+  gui\dialogs.py:181:        layout.addLayout(max_frames_layo
+ut)
+  gui\dialogs.py:182:
+  gui\live_analysis_tab.py:9:    QLabel,
+  gui\live_analysis_tab.py:10:    QPushButton,
+  gui\live_analysis_tab.py:11:    QTextEdit,
+  gui\live_analysis_tab.py:12:    QFrame,
+> gui\live_analysis_tab.py:13:    QSlider,
+  gui\live_analysis_tab.py:14:)
+  gui\live_analysis_tab.py:15:from PyQt5.QtCore import Qt
+  gui\live_analysis_tab.py:16:from PyQt5.QtGui import QFont
+  gui\live_analysis_tab.py:17:
+  gui\live_analysis_tab.py:44:    control_layout.setContentsM
+argins(12, 12, 12, 12)
+  gui\live_analysis_tab.py:45:    control_layout.setSpacing(1
+0)
+  gui\live_analysis_tab.py:46:
+  gui\live_analysis_tab.py:47:    parent_window.live_select_v
+ideo_btn = QPushButton("Video Sec")
+> gui\live_analysis_tab.py:48:    parent_window.live_select_v
+ideo_btn.setMinimumHeight(42)
+  gui\live_analysis_tab.py:49:    parent_window.live_select_v
+ideo_btn.clicked.connect(parent_window.select_live_video)
+  gui\live_analysis_tab.py:50:    control_layout.addWidget(pa
+rent_window.live_select_video_btn)
+  gui\live_analysis_tab.py:51:
+  gui\live_analysis_tab.py:52:    parent_window.live_play_btn
+ = QPushButton("Oynat / Devam Et")
+> gui\live_analysis_tab.py:53:    parent_window.live_play_btn
+.setMinimumHeight(42)
+  gui\live_analysis_tab.py:54:    parent_window.live_play_btn
+.setEnabled(False)
+  gui\live_analysis_tab.py:55:    parent_window.live_play_btn
+.clicked.connect(parent_window.start_live_video_tracking)
+  gui\live_analysis_tab.py:56:    control_layout.addWidget(pa
+rent_window.live_play_btn)
+  gui\live_analysis_tab.py:57:
+  gui\live_analysis_tab.py:58:    parent_window.live_pause_bt
+n = QPushButton("Duraklat")
+> gui\live_analysis_tab.py:59:    parent_window.live_pause_bt
+n.setMinimumHeight(42)
+  gui\live_analysis_tab.py:60:    parent_window.live_pause_bt
+n.setEnabled(False)
+  gui\live_analysis_tab.py:61:    parent_window.live_pause_bt
+n.clicked.connect(parent_window.pause_live_video_tracking)
+  gui\live_analysis_tab.py:62:    control_layout.addWidget(pa
+rent_window.live_pause_btn)
+  gui\live_analysis_tab.py:63:
+  gui\live_analysis_tab.py:64:    parent_window.live_stop_btn
+ = QPushButton("Durdur")
+> gui\live_analysis_tab.py:65:    parent_window.live_stop_btn
+.setMinimumHeight(42)
+  gui\live_analysis_tab.py:66:    parent_window.live_stop_btn
+.setEnabled(False)
+  gui\live_analysis_tab.py:67:    parent_window.live_stop_btn
+.clicked.connect(parent_window.stop_live_video_tracking)
+  gui\live_analysis_tab.py:68:    control_layout.addWidget(pa
+rent_window.live_stop_btn)
+  gui\live_analysis_tab.py:69:
+  gui\live_analysis_tab.py:101:    video_layout.setSpacing(10
+)
+  gui\live_analysis_tab.py:102:
+  gui\live_analysis_tab.py:103:    parent_window.live_video_l
+abel = QLabel("Canli analiz goruntusu burada gosterilecek")
+  gui\live_analysis_tab.py:104:    parent_window.live_video_l
+abel.setAlignment(Qt.AlignmentFlag.AlignCenter)
+> gui\live_analysis_tab.py:105:    parent_window.live_video_l
+abel.setMinimumHeight(420)
+  gui\live_analysis_tab.py:106:    parent_window.live_video_l
+abel.setStyleSheet("""
+  gui\live_analysis_tab.py:107:        QLabel {
+  gui\live_analysis_tab.py:108:            color: #DDDDDD;
+  gui\live_analysis_tab.py:109:            background-color: 
+#111111;
+  gui\live_analysis_tab.py:129:    timeline_layout.setContent
+sMargins(10, 8, 10, 8)
+  gui\live_analysis_tab.py:130:    timeline_layout.setSpacing
+(10)
+  gui\live_analysis_tab.py:131:
+  gui\live_analysis_tab.py:132:    parent_window.live_current
+_time_label = QLabel("00:00")
+> gui\live_analysis_tab.py:133:    parent_window.live_current
+_time_label.setMinimumWidth(55)
+  gui\live_analysis_tab.py:134:    parent_window.live_current
+_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+  gui\live_analysis_tab.py:135:    parent_window.live_current
+_time_label.setStyleSheet("""
+  gui\live_analysis_tab.py:136:        QLabel {
+  gui\live_analysis_tab.py:137:            color: #ECF0F1;
+  gui\live_analysis_tab.py:140:        }
+  gui\live_analysis_tab.py:141:    """)
+  gui\live_analysis_tab.py:142:    timeline_layout.addWidget(
+parent_window.live_current_time_label)
+  gui\live_analysis_tab.py:143:
+> gui\live_analysis_tab.py:144:    parent_window.live_timelin
+e_slider = QSlider(Qt.Orientation.Horizontal)
+> gui\live_analysis_tab.py:145:    parent_window.live_timelin
+e_slider.setRange(0, 0)
+> gui\live_analysis_tab.py:146:    parent_window.live_timelin
+e_slider.setValue(0)
+  gui\live_analysis_tab.py:147:    parent_window.live_timelin
+e_slider.setEnabled(True)
+  gui\live_analysis_tab.py:148:    parent_window.live_timelin
+e_slider.sliderPressed.connect(parent_window.on_live_slider_p
+ressed)
+  gui\live_analysis_tab.py:149:    parent_window.live_timelin
+e_slider.sliderMoved.connect(parent_window.on_live_slider_mov
+ed)
+  gui\live_analysis_tab.py:150:    parent_window.live_timelin
+e_slider.sliderReleased.connect(parent_window.on_live_slider_
+released)
+  gui\live_analysis_tab.py:151:    parent_window.live_timelin
+e_slider.setStyleSheet("""
+> gui\live_analysis_tab.py:152:        QSlider::groove:horizo
+ntal {
+  gui\live_analysis_tab.py:153:            border: 1px solid 
+#566573;
+  gui\live_analysis_tab.py:154:            height: 8px;
+  gui\live_analysis_tab.py:155:            background: #2C3E5
+0;
+  gui\live_analysis_tab.py:156:            border-radius: 4px
+;
+  gui\live_analysis_tab.py:157:        }
+> gui\live_analysis_tab.py:158:        QSlider::sub-page:hori
+zontal {
+  gui\live_analysis_tab.py:159:            background: #3498D
+B;
+  gui\live_analysis_tab.py:160:            border-radius: 4px
+;
+  gui\live_analysis_tab.py:161:        }
+> gui\live_analysis_tab.py:162:        QSlider::handle:horizo
+ntal {
+  gui\live_analysis_tab.py:163:            background: #ECF0F
+1;
+  gui\live_analysis_tab.py:164:            border: 1px solid 
+#BDC3C7;
+  gui\live_analysis_tab.py:165:            width: 16px;
+  gui\live_analysis_tab.py:166:            margin: -5px 0;
+  gui\live_analysis_tab.py:169:    """)
+  gui\live_analysis_tab.py:170:    timeline_layout.addWidget(
+parent_window.live_timeline_slider, 1)
+  gui\live_analysis_tab.py:171:
+  gui\live_analysis_tab.py:172:    parent_window.live_total_t
+ime_label = QLabel("00:00")
+> gui\live_analysis_tab.py:173:    parent_window.live_total_t
+ime_label.setMinimumWidth(55)
+  gui\live_analysis_tab.py:174:    parent_window.live_total_t
+ime_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+  gui\live_analysis_tab.py:175:    parent_window.live_total_t
+ime_label.setStyleSheet("""
+  gui\live_analysis_tab.py:176:        QLabel {
+  gui\live_analysis_tab.py:177:            color: #ECF0F1;
+  gui\training_tab.py:141:
+  gui\training_tab.py:142:
+  gui\training_tab.py:143:def _safe_connect(button: QPushButt
+on, parent_window, method_name: str, friendly_name: str):
+  gui\training_tab.py:144:    """
+> gui\training_tab.py:145:    Yeni main.py fonksiyonları henü
+z eklenmediyse uygulama çökmesin diye güvenli bağlantı.
+  gui\training_tab.py:146:
+  gui\training_tab.py:147:    Pylance'ın PyQt slot tipi uyarı
+sı vermemesi için callable metod direkt connect edilmez.
+  gui\training_tab.py:148:    Onun yerine None dönen küçük bi
+r wrapper slot kullanılır.
+  gui\training_tab.py:149:    """
+  gui\training_tab.py:337:    choice_layout.addWidget(QLabel(
+"Kategori:"))
+  gui\training_tab.py:338:
+  gui\training_tab.py:339:    parent_window.upload_category_c
+ombo = QComboBox()
+  gui\training_tab.py:340:    parent_window.upload_category_c
+ombo.addItems(_get_categories(parent_window))
+> gui\training_tab.py:341:    parent_window.upload_category_c
+ombo.setMinimumWidth(170)
+  gui\training_tab.py:342:    choice_layout.addWidget(parent_
+window.upload_category_combo)
+  gui\training_tab.py:343:
+  gui\training_tab.py:344:    choice_layout.addWidget(QLabel(
+"Bölüm:"))
+  gui\training_tab.py:345:
+  gui\training_tab.py:346:    parent_window.upload_split_comb
+o = QComboBox()
+  gui\training_tab.py:347:    parent_window.upload_split_comb
+o.addItems(["train", "val", "test"])
+  gui\training_tab.py:348:    parent_window.upload_split_comb
+o.setCurrentIndex(0)
+> gui\training_tab.py:349:    parent_window.upload_split_comb
+o.setMinimumWidth(100)
+  gui\training_tab.py:350:    choice_layout.addWidget(parent_
+window.upload_split_combo)
+  gui\training_tab.py:351:
+  gui\training_tab.py:352:    upload_refresh_btn = QPushButto
+n("Kategorileri Yenile")
+> gui\training_tab.py:353:    upload_refresh_btn.setMinimumHe
+ight(34)
+  gui\training_tab.py:354:    upload_refresh_btn.setStyleShee
+t(_button_style("#2563EB", "#1D4ED8", 9))
+  gui\training_tab.py:355:    upload_refresh_btn.clicked.conn
+ect(parent_window.refresh_upload_categories)
+  gui\training_tab.py:356:    choice_layout.addWidget(upload_
+refresh_btn)
+  gui\training_tab.py:357:
+  gui\training_tab.py:370:
+  gui\training_tab.py:371:    btn_row1 = QHBoxLayout()
+  gui\training_tab.py:372:
+  gui\training_tab.py:373:    images_btn = QPushButton("Resim
+ler Yükle")
+> gui\training_tab.py:374:    images_btn.setMinimumHeight(44)
+  gui\training_tab.py:375:    images_btn.setStyleSheet(_butto
+n_style("#2563EB", "#1D4ED8"))
+  gui\training_tab.py:376:    images_btn.clicked.connect(pare
+nt_window.browse_training_images)
+  gui\training_tab.py:377:    btn_row1.addWidget(images_btn)
+  gui\training_tab.py:378:
+  gui\training_tab.py:379:    labels_btn = QPushButton("Label
+lar Yükle")
+> gui\training_tab.py:380:    labels_btn.setMinimumHeight(44)
+  gui\training_tab.py:381:    labels_btn.setStyleSheet(_butto
+n_style("#7C3AED", "#6D28D9"))
+  gui\training_tab.py:382:    labels_btn.clicked.connect(pare
+nt_window.browse_training_labels)
+  gui\training_tab.py:383:    btn_row1.addWidget(labels_btn)
+  gui\training_tab.py:384:
+  gui\training_tab.py:386:
+  gui\training_tab.py:387:    btn_row2 = QHBoxLayout()
+  gui\training_tab.py:388:
+  gui\training_tab.py:389:    video_btn = QPushButton("Video'
+dan Frame Çıkar")
+> gui\training_tab.py:390:    video_btn.setMinimumHeight(44)
+  gui\training_tab.py:391:    video_btn.setStyleSheet(_button
+_style("#DC2626", "#B91C1C"))
+  gui\training_tab.py:392:    video_btn.clicked.connect(paren
+t_window.extract_video_frames)
+  gui\training_tab.py:393:    btn_row2.addWidget(video_btn)
+  gui\training_tab.py:394:    btn_row2.addStretch()
+  gui\training_tab.py:470:    new_cat_layout.addWidget(QLabel
+("Yeni Kategori Adı:"))
+  gui\training_tab.py:471:
+  gui\training_tab.py:472:    parent_window.new_category_inpu
+t = QLineEdit()
+  gui\training_tab.py:473:    parent_window.new_category_inpu
+t.setPlaceholderText("örn: nora_b52, zuzana, obus")
+> gui\training_tab.py:474:    parent_window.new_category_inpu
+t.setMinimumWidth(240)
+  gui\training_tab.py:475:    new_cat_layout.addWidget(parent
+_window.new_category_input)
+  gui\training_tab.py:476:
+  gui\training_tab.py:477:    add_cat_btn = QPushButton("Kate
+gori Oluştur")
+> gui\training_tab.py:478:    add_cat_btn.setMinimumHeight(34
+)
+  gui\training_tab.py:479:    add_cat_btn.setStyleSheet(_butt
+on_style("#16A34A", "#15803D"))
+  gui\training_tab.py:480:    add_cat_btn.clicked.connect(par
+ent_window.create_new_category)
+  gui\training_tab.py:481:    new_cat_layout.addWidget(add_ca
+t_btn)
+  gui\training_tab.py:482:
+  gui\training_tab.py:485:
+  gui\training_tab.py:486:    category_ops_layout = QHBoxLayo
+ut()
+  gui\training_tab.py:487:
+  gui\training_tab.py:488:    rename_cat_btn = QPushButton("K
+ategoriyi Yeniden Adlandır")
+> gui\training_tab.py:489:    rename_cat_btn.setMinimumHeight
+(34)
+  gui\training_tab.py:490:    rename_cat_btn.setStyleSheet(_b
+utton_style("#F59E0B", "#D97706"))
+  gui\training_tab.py:491:    rename_cat_btn.clicked.connect(
+parent_window.rename_category)
+  gui\training_tab.py:492:    category_ops_layout.addWidget(r
+ename_cat_btn)
+  gui\training_tab.py:493:
+  gui\training_tab.py:494:    delete_cat_btn = QPushButton("K
+ategoriyi Sil")
+> gui\training_tab.py:495:    delete_cat_btn.setMinimumHeight
+(34)
+  gui\training_tab.py:496:    delete_cat_btn.setStyleSheet(_b
+utton_style("#DC2626", "#B91C1C"))
+  gui\training_tab.py:497:    delete_cat_btn.clicked.connect(
+parent_window.delete_category)
+  gui\training_tab.py:498:    category_ops_layout.addWidget(d
+elete_cat_btn)
+  gui\training_tab.py:499:
+  gui\training_tab.py:500:    refresh_cat_btn = QPushButton("
+Listeyi Yenile")
+> gui\training_tab.py:501:    refresh_cat_btn.setMinimumHeigh
+t(34)
+  gui\training_tab.py:502:    refresh_cat_btn.setStyleSheet(_
+soft_button_style("#E0F2FE", "#BAE6FD"))
+  gui\training_tab.py:503:    refresh_cat_btn.clicked.connect
+(parent_window.refresh_categories_list)
+  gui\training_tab.py:504:    category_ops_layout.addWidget(r
+efresh_cat_btn)
+  gui\training_tab.py:505:
+  gui\training_tab.py:542:    parent_window.content_split_com
+bo.currentTextChanged.connect(parent_window.refresh_content_d
+isplay)
+  gui\training_tab.py:543:    select_layout.addWidget(parent_
+window.content_split_combo)
+  gui\training_tab.py:544:
+  gui\training_tab.py:545:    refresh_btn = QPushButton("Yeni
+le")
+> gui\training_tab.py:546:    refresh_btn.setMinimumHeight(34
+)
+  gui\training_tab.py:547:    refresh_btn.setStyleSheet(_soft
+_button_style("#DCFCE7", "#BBF7D0"))
+  gui\training_tab.py:548:    refresh_btn.clicked.connect(par
+ent_window.refresh_content_display)
+  gui\training_tab.py:549:    select_layout.addWidget(refresh
+_btn)
+  gui\training_tab.py:550:
+  gui\training_tab.py:551:    category_refresh_btn = QPushBut
+ton("Kategorileri Yenile")
+> gui\training_tab.py:552:    category_refresh_btn.setMinimum
+Height(34)
+  gui\training_tab.py:553:    category_refresh_btn.setStyleSh
+eet(_soft_button_style("#DBEAFE", "#BFDBFE"))
+  gui\training_tab.py:554:    category_refresh_btn.clicked.co
+nnect(parent_window.refresh_content_categories)
+  gui\training_tab.py:555:    select_layout.addWidget(categor
+y_refresh_btn)
+  gui\training_tab.py:556:
+  gui\training_tab.py:600:
+  gui\training_tab.py:601:    ops_btn_layout = QHBoxLayout()
+  gui\training_tab.py:602:
+  gui\training_tab.py:603:    del_img_btn = QPushButton("Seçi
+li Resimleri Sil")
+> gui\training_tab.py:604:    del_img_btn.setMinimumHeight(34
+)
+  gui\training_tab.py:605:    del_img_btn.setStyleSheet(_butt
+on_style("#EF4444", "#DC2626", 9))
+  gui\training_tab.py:606:    del_img_btn.clicked.connect(par
+ent_window.delete_selected_images)
+  gui\training_tab.py:607:    ops_btn_layout.addWidget(del_im
+g_btn)
+  gui\training_tab.py:608:
+  gui\training_tab.py:609:    del_lbl_btn = QPushButton("Seçi
+li Labelları Sil")
+> gui\training_tab.py:610:    del_lbl_btn.setMinimumHeight(34
+)
+  gui\training_tab.py:611:    del_lbl_btn.setStyleSheet(_butt
+on_style("#F97316", "#EA580C", 9))
+  gui\training_tab.py:612:    del_lbl_btn.clicked.connect(par
+ent_window.delete_selected_labels)
+  gui\training_tab.py:613:    ops_btn_layout.addWidget(del_lb
+l_btn)
+  gui\training_tab.py:614:
+  gui\training_tab.py:615:    del_all_btn = QPushButton("Tümü
+nü Sil")
+> gui\training_tab.py:616:    del_all_btn.setMinimumHeight(34
+)
+  gui\training_tab.py:617:    del_all_btn.setStyleSheet(_butt
+on_style("#991B1B", "#7F1D1D", 9))
+  gui\training_tab.py:618:    del_all_btn.clicked.connect(par
+ent_window.delete_all_content)
+  gui\training_tab.py:619:    ops_btn_layout.addWidget(del_al
+l_btn)
+  gui\training_tab.py:620:
+  gui\training_tab.py:662:    row.addWidget(QLabel("Analiz Ed
+ilecek Kategori:"))
+  gui\training_tab.py:663:
+  gui\training_tab.py:664:    parent_window.analysis_category
+_combo = QComboBox()
+  gui\training_tab.py:665:    parent_window.analysis_category
+_combo.addItems(_get_categories(parent_window))
+> gui\training_tab.py:666:    parent_window.analysis_category
+_combo.setMinimumWidth(180)
+  gui\training_tab.py:667:    row.addWidget(parent_window.ana
+lysis_category_combo)
+  gui\training_tab.py:668:
+  gui\training_tab.py:669:    refresh_analysis_categories_btn
+ = QPushButton("Yenile")
+> gui\training_tab.py:670:    refresh_analysis_categories_btn
+.setMinimumHeight(34)
+  gui\training_tab.py:671:    refresh_analysis_categories_btn
+.setStyleSheet(_soft_button_style("#DBEAFE", "#BFDBFE"))
+  gui\training_tab.py:672:    _safe_connect(
+  gui\training_tab.py:673:        refresh_analysis_categories
+_btn,
+  gui\training_tab.py:674:        parent_window,
+  gui\training_tab.py:682:
+  gui\training_tab.py:683:    btn_row = QHBoxLayout()
+  gui\training_tab.py:684:
+  gui\training_tab.py:685:    selected_analysis_btn = QPushBu
+tton("Seçili Kategoriyi Analiz Et")
+> gui\training_tab.py:686:    selected_analysis_btn.setMinimu
+mHeight(40)
+  gui\training_tab.py:687:    selected_analysis_btn.setStyleS
+heet(_button_style("#2563EB", "#1D4ED8"))
+  gui\training_tab.py:688:    _safe_connect(
+  gui\training_tab.py:689:        selected_analysis_btn,
+  gui\training_tab.py:690:        parent_window,
+  gui\training_tab.py:693:    )
+  gui\training_tab.py:694:    btn_row.addWidget(selected_anal
+ysis_btn)
+  gui\training_tab.py:695:
+  gui\training_tab.py:696:    all_analysis_btn = QPushButton(
+"Tüm Kategorileri Analiz Et")
+> gui\training_tab.py:697:    all_analysis_btn.setMinimumHeig
+ht(40)
+  gui\training_tab.py:698:    all_analysis_btn.setStyleSheet(
+_button_style("#7C3AED", "#6D28D9"))
+  gui\training_tab.py:699:    _safe_connect(
+  gui\training_tab.py:700:        all_analysis_btn,
+  gui\training_tab.py:701:        parent_window,
+  gui\training_tab.py:704:    )
+  gui\training_tab.py:705:    btn_row.addWidget(all_analysis_
+btn)
+  gui\training_tab.py:706:
+  gui\training_tab.py:707:    combined_analysis_btn = QPushBu
+tton("Birleşik Dataset'i Analiz Et")
+> gui\training_tab.py:708:    combined_analysis_btn.setMinimu
+mHeight(40)
+  gui\training_tab.py:709:    combined_analysis_btn.setStyleS
+heet(_button_style("#0F766E", "#0D9488"))
+  gui\training_tab.py:710:    _safe_connect(
+  gui\training_tab.py:711:        combined_analysis_btn,
+  gui\training_tab.py:712:        parent_window,
+  gui\training_tab.py:730:
+  gui\training_tab.py:731:    parent_window.dataset_analysis_
+text = QTextEdit()
+  gui\training_tab.py:732:    parent_window.dataset_analysis_
+text.setReadOnly(True)
+  gui\training_tab.py:733:    parent_window.dataset_analysis_
+text.setStyleSheet(_textedit_style())
+> gui\training_tab.py:734:    parent_window.dataset_analysis_
+text.setMinimumHeight(260)
+  gui\training_tab.py:735:    parent_window.dataset_analysis_
+text.setText(
+  gui\training_tab.py:736:        "Henüz analiz yapılmadı.\n\
+n"
+  gui\training_tab.py:737:        "Önerilen kontrol:\n"
+  gui\training_tab.py:738:        "- Zuzana label dağılımı: 4
+ = zuzana_govde\n"
+  gui\training_tab.py:767:    param_row = QHBoxLayout()
+  gui\training_tab.py:768:
+  gui\training_tab.py:769:    param_row.addWidget(QLabel("Epo
+ch:"))
+  gui\training_tab.py:770:    parent_window.epoch_spinbox = Q
+SpinBox()
+> gui\training_tab.py:771:    parent_window.epoch_spinbox.set
+Minimum(1)
+  gui\training_tab.py:772:    parent_window.epoch_spinbox.set
+Maximum(500)
+> gui\training_tab.py:773:    parent_window.epoch_spinbox.set
+Value(50)
+> gui\training_tab.py:774:    parent_window.epoch_spinbox.set
+MinimumWidth(90)
+  gui\training_tab.py:775:    param_row.addWidget(parent_wind
+ow.epoch_spinbox)
+  gui\training_tab.py:776:
+  gui\training_tab.py:777:    param_row.addWidget(QLabel("Bat
+ch:"))
+  gui\training_tab.py:778:    parent_window.batch_spinbox = Q
+SpinBox()
+> gui\training_tab.py:779:    parent_window.batch_spinbox.set
+Minimum(1)
+  gui\training_tab.py:780:    parent_window.batch_spinbox.set
+Maximum(128)
+> gui\training_tab.py:781:    parent_window.batch_spinbox.set
+Value(16)
+> gui\training_tab.py:782:    parent_window.batch_spinbox.set
+MinimumWidth(90)
+  gui\training_tab.py:783:    param_row.addWidget(parent_wind
+ow.batch_spinbox)
+  gui\training_tab.py:784:
+  gui\training_tab.py:785:    param_row.addWidget(QLabel("Res
+im Boyutu:"))
+  gui\training_tab.py:786:    parent_window.imgsz_spinbox = Q
+SpinBox()
+> gui\training_tab.py:787:    parent_window.imgsz_spinbox.set
+Minimum(320)
+  gui\training_tab.py:788:    parent_window.imgsz_spinbox.set
+Maximum(1280)
+> gui\training_tab.py:789:    parent_window.imgsz_spinbox.set
+Value(640)
+  gui\training_tab.py:790:    parent_window.imgsz_spinbox.set
+SingleStep(64)
+> gui\training_tab.py:791:    parent_window.imgsz_spinbox.set
+MinimumWidth(90)
+  gui\training_tab.py:792:    param_row.addWidget(parent_wind
+ow.imgsz_spinbox)
+  gui\training_tab.py:793:
+  gui\training_tab.py:794:    param_row.addStretch()
+  gui\training_tab.py:795:    params_layout.addLayout(param_r
+ow)
+  gui\training_tab.py:820:    cat_layout.addWidget(QLabel("Eğ
+itim Kategorisi:"))
+  gui\training_tab.py:821:
+  gui\training_tab.py:822:    parent_window.training_category
+_combo = QComboBox()
+  gui\training_tab.py:823:    parent_window.training_category
+_combo.addItems(_get_categories(parent_window))
+> gui\training_tab.py:824:    parent_window.training_category
+_combo.setMinimumWidth(170)
+  gui\training_tab.py:825:    cat_layout.addWidget(parent_win
+dow.training_category_combo)
+  gui\training_tab.py:826:
+  gui\training_tab.py:827:    train_refresh_btn = QPushButton
+("Yenile")
+> gui\training_tab.py:828:    train_refresh_btn.setMinimumHei
+ght(34)
+  gui\training_tab.py:829:    train_refresh_btn.setMaximumWid
+th(100)
+  gui\training_tab.py:830:    train_refresh_btn.setStyleSheet
+(_soft_button_style("#DBEAFE", "#BFDBFE"))
+  gui\training_tab.py:831:    train_refresh_btn.clicked.conne
+ct(parent_window.refresh_training_categories)
+  gui\training_tab.py:832:    cat_layout.addWidget(train_refr
+esh_btn)
+  gui\training_tab.py:834:    cat_layout.addStretch()
+  gui\training_tab.py:835:    category_train_layout.addLayout
+(cat_layout)
+  gui\training_tab.py:836:
+  gui\training_tab.py:837:    parent_window.train_btn = QPush
+Button("SEÇİLİ KATEGORİYİ EĞİT")
+> gui\training_tab.py:838:    parent_window.train_btn.setMini
+mumHeight(48)
+  gui\training_tab.py:839:    parent_window.train_btn.setFont
+(QFont("Arial", 11, QFont.Bold))
+  gui\training_tab.py:840:    parent_window.train_btn.setStyl
+eSheet(_button_style("#16A34A", "#15803D", 11))
+  gui\training_tab.py:841:    parent_window.train_btn.clicked
+.connect(parent_window.start_training)
+  gui\training_tab.py:842:    category_train_layout.addWidget
+(parent_window.train_btn)
+  gui\training_tab.py:868:
+  gui\training_tab.py:869:    parent_window.combined_dataset_
+name_input = QLineEdit()
+  gui\training_tab.py:870:    parent_window.combined_dataset_
+name_input.setText("weapon_dataset")
+  gui\training_tab.py:871:    parent_window.combined_dataset_
+name_input.setPlaceholderText("weapon_dataset")
+> gui\training_tab.py:872:    parent_window.combined_dataset_
+name_input.setMinimumWidth(200)
+  gui\training_tab.py:873:    dataset_name_row.addWidget(pare
+nt_window.combined_dataset_name_input)
+  gui\training_tab.py:874:
+  gui\training_tab.py:875:    dataset_name_row.addStretch()
+  gui\training_tab.py:876:    combined_layout.addLayout(datas
+et_name_row)
+  gui\training_tab.py:879:    source_title_row.addWidget(QLab
+el("Kaynak Kategoriler:"))
+  gui\training_tab.py:880:    source_title_row.addStretch()
+  gui\training_tab.py:881:
+  gui\training_tab.py:882:    refresh_sources_btn = QPushButt
+on("Kaynakları Yenile")
+> gui\training_tab.py:883:    refresh_sources_btn.setMinimumH
+eight(32)
+  gui\training_tab.py:884:    refresh_sources_btn.setStyleShe
+et(_soft_button_style("#EDE9FE", "#DDD6FE"))
+  gui\training_tab.py:885:    refresh_sources_btn.clicked.con
+nect(lambda _checked=False: _fill_combined_source_list(parent
+_window))
+  gui\training_tab.py:886:    source_title_row.addWidget(refr
+esh_sources_btn)
+  gui\training_tab.py:887:
+  gui\training_tab.py:888:    select_all_sources_btn = QPushB
+utton("Tümünü Seç")
+> gui\training_tab.py:889:    select_all_sources_btn.setMinim
+umHeight(32)
+  gui\training_tab.py:890:    select_all_sources_btn.setStyle
+Sheet(_soft_button_style("#DCFCE7", "#BBF7D0"))
+  gui\training_tab.py:891:    select_all_sources_btn.clicked.
+connect(lambda _checked=False: _select_all_combined_sources(p
+arent_window))
+  gui\training_tab.py:892:    source_title_row.addWidget(sele
+ct_all_sources_btn)
+  gui\training_tab.py:893:
+  gui\training_tab.py:894:    clear_sources_btn = QPushButton
+("Seçimi Temizle")
+> gui\training_tab.py:895:    clear_sources_btn.setMinimumHei
+ght(32)
+  gui\training_tab.py:896:    clear_sources_btn.setStyleSheet
+(_soft_button_style("#FEF3C7", "#FDE68A"))
+  gui\training_tab.py:897:    clear_sources_btn.clicked.conne
+ct(lambda _checked=False: _clear_combined_sources_selection(p
+arent_window))
+  gui\training_tab.py:898:    source_title_row.addWidget(clea
+r_sources_btn)
+  gui\training_tab.py:899:
+  gui\training_tab.py:909:
+  gui\training_tab.py:910:    combined_btn_row = QHBoxLayout(
+)
+  gui\training_tab.py:911:
+  gui\training_tab.py:912:    prepare_combined_btn = QPushBut
+ton("Birleşik Dataset Hazırla")
+> gui\training_tab.py:913:    prepare_combined_btn.setMinimum
+Height(44)
+  gui\training_tab.py:914:    prepare_combined_btn.setStyleSh
+eet(_button_style("#7C3AED", "#6D28D9", 10))
+  gui\training_tab.py:915:    _safe_connect(
+  gui\training_tab.py:916:        prepare_combined_btn,
+  gui\training_tab.py:917:        parent_window,
+  gui\training_tab.py:920:    )
+  gui\training_tab.py:921:    combined_btn_row.addWidget(prep
+are_combined_btn)
+  gui\training_tab.py:922:
+  gui\training_tab.py:923:    train_combined_btn = QPushButto
+n("BİRLEŞİK FİNAL MODELİ EĞİT")
+> gui\training_tab.py:924:    train_combined_btn.setMinimumHe
+ight(44)
+  gui\training_tab.py:925:    train_combined_btn.setStyleShee
+t(_button_style("#0F766E", "#0D9488", 10))
+  gui\training_tab.py:926:    _safe_connect(
+  gui\training_tab.py:927:        train_combined_btn,
+  gui\training_tab.py:928:        parent_window,
+  gui\training_tab.py:958:    progress_layout.addLayout(progr
+ess_header_row)
+  gui\training_tab.py:959:
+  gui\training_tab.py:960:    parent_window.training_progress
+ = QProgressBar()
+  gui\training_tab.py:961:    parent_window.training_progress
+.setVisible(False)
+> gui\training_tab.py:962:    parent_window.training_progress
+.setMinimum(0)
+  gui\training_tab.py:963:    parent_window.training_progress
+.setMaximum(100)
+> gui\training_tab.py:964:    parent_window.training_progress
+.setValue(0)
+> gui\training_tab.py:965:    parent_window.training_progress
+.setMinimumHeight(25)
+  gui\training_tab.py:966:    parent_window.training_progress
+.setStyleSheet("""
+  gui\training_tab.py:967:        QProgressBar {
+  gui\training_tab.py:968:            border: 1px solid #94A3
+B8;
+  gui\training_tab.py:969:            border-radius: 6px;
+  gui\workers.py:11:import cv2
+  gui\workers.py:12:from PyQt5.QtCore import QThread, pyqtSig
+nal
+  gui\workers.py:13:from PyQt5.QtGui import QImage
+  gui\workers.py:14:
+> gui\workers.py:15:import config
+  gui\workers.py:16:
+  gui\workers.py:17:logger = logging.getLogger(__name__)
+  gui\workers.py:18:
+  gui\workers.py:19:
+  gui\workers.py:40:            file_suffix = file_path.suffi
+x.lower()
+  gui\workers.py:41:
+  gui\workers.py:42:            self.progress_update.emit(f"A
+naliz baslaniyor: {file_path.name}")
+  gui\workers.py:43:
+> gui\workers.py:44:            if file_suffix in config.SUPP
+ORTED_IMAGE_FORMATS:
+  gui\workers.py:45:                self._analyze_image()
+> gui\workers.py:46:            elif file_suffix in config.SU
+PPORTED_VIDEO_FORMATS:
+  gui\workers.py:47:                self._analyze_video()
+  gui\workers.py:48:            else:
+  gui\workers.py:49:                raise ValueError(f"Destek
+lenmeyen dosya formati: {file_suffix}")
+  gui\workers.py:50:
+  gui\workers.py:65:            self.results = {
+  gui\workers.py:66:                "filename": Path(self.fil
+e_path).name,
+  gui\workers.py:67:                "file_type": "image",
+  gui\workers.py:68:                "detected": detection["de
+tected"],
+> gui\workers.py:69:                "confidence": detection["
+confidence"],
+  gui\workers.py:70:                "capture_date": metadata[
+"capture_date"],
+  gui\workers.py:71:                "capture_time": metadata[
+"capture_time"],
+> gui\workers.py:72:                "analysis_date": datetime
+.now().strftime(config.REPORT_DATE_FORMAT),
+> gui\workers.py:73:                "analysis_time": datetime
+.now().strftime(config.REPORT_TIME_FORMAT),
+  gui\workers.py:74:                "analysis_datetime": date
+time.now().isoformat(),
+  gui\workers.py:75:                "gps_latitude": metadata.
+get("gps_latitude"),
+  gui\workers.py:76:                "gps_longitude": metadata
+.get("gps_longitude"),
+  gui\workers.py:77:                "distance_m": None,
+  gui\workers.py:85:                "class_name": detection.g
+et("class_name"),
+  gui\workers.py:86:            }
+  gui\workers.py:87:
+  gui\workers.py:88:            if detection["detected"]:
+> gui\workers.py:89:                self.progress_update.emit
+(f"Tespit bulundu! Guven: {detection['confidence']:.2%}")
+  gui\workers.py:90:            else:
+  gui\workers.py:91:                self.progress_update.emit
+("Tespit bulunamadi")
+  gui\workers.py:92:
+  gui\workers.py:93:        except Exception as e:
+  gui\workers.py:98:        """Video dosyasini analiz et"""
+  gui\workers.py:99:        try:
+  gui\workers.py:100:            self.progress_update.emit("V
+ideo analiz ediliyor...")
+  gui\workers.py:101:
+> gui\workers.py:102:            def progress_callback(curren
+t_frame, total_frames, confidence):
+> gui\workers.py:103:                self.frame_progress.emit
+(current_frame, total_frames, confidence)
+  gui\workers.py:104:                self.progress_update.emi
+t(
+> gui\workers.py:105:                    f"Frame {current_fra
+me}/{total_frames} - Guven: {confidence:.2%}"
+  gui\workers.py:106:                )
+  gui\workers.py:107:
+  gui\workers.py:108:            detection = self.detector.de
+tect_in_video(self.file_path, progress_callback)
+  gui\workers.py:109:            metadata = self.metadata_ext
+ractor.extract_video_metadata(self.file_path)
+  gui\workers.py:111:            self.results = {
+  gui\workers.py:112:                "filename": Path(self.fi
+le_path).name,
+  gui\workers.py:113:                "file_type": "video",
+  gui\workers.py:114:                "detected": detection["d
+etected"],
+> gui\workers.py:115:                "confidence": detection[
+"confidence"],
+  gui\workers.py:116:                "capture_date": metadata
+["capture_date"],
+  gui\workers.py:117:                "capture_time": metadata
+["capture_time"],
+> gui\workers.py:118:                "analysis_date": datetim
+e.now().strftime(config.REPORT_DATE_FORMAT),
+> gui\workers.py:119:                "analysis_time": datetim
+e.now().strftime(config.REPORT_TIME_FORMAT),
+  gui\workers.py:120:                "analysis_datetime": dat
+etime.now().isoformat(),
+  gui\workers.py:121:                "gps_latitude": metadata
+.get("gps_latitude"),
+  gui\workers.py:122:                "gps_longitude": metadat
+a.get("gps_longitude"),
+  gui\workers.py:123:                "distance_m": None,
+  gui\workers.py:131:                "class_name": detection.
+get("class_name"),
+  gui\workers.py:132:            }
+  gui\workers.py:133:
+  gui\workers.py:134:            if detection["detected"]:
+> gui\workers.py:135:                msg = f"Tespit: {detecti
+on['timestamp_mmss']} | Guven: {detection['confidence']:.2%}"
+  gui\workers.py:136:                self.progress_update.emi
+t(msg)
+  gui\workers.py:137:            else:
+  gui\workers.py:138:                self.progress_update.emi
+t("Videoda tespit bulunamadi")
+  gui\workers.py:139:
+  gui\workers.py:216:        detections_for_log = []
+  gui\workers.py:217:
+  gui\workers.py:218:        if results and len(results[0].bo
+xes) > 0:
+  gui\workers.py:219:            boxes = results[0].boxes
+> gui\workers.py:220:            confidences = boxes.conf.cpu
+().numpy()
+  gui\workers.py:221:            class_ids = (
+  gui\workers.py:222:                boxes.cls.cpu().numpy().
+astype(int)
+  gui\workers.py:223:                if hasattr(boxes, "cls")
+  gui\workers.py:224:                else []
+  gui\workers.py:225:            )
+  gui\workers.py:226:
+  gui\workers.py:227:            current_time_text = self._fr
+ame_to_time_text(self.frame_counter)
+  gui\workers.py:228:
+> gui\workers.py:229:            for i, conf in enumerate(con
+fidences):
+> gui\workers.py:230:                if conf < self.detector.
+confidence_threshold:
+  gui\workers.py:231:                    continue
+  gui\workers.py:232:
+  gui\workers.py:233:                self.detection_counter +
+= 1
+  gui\workers.py:234:
+  gui\workers.py:240:
+  gui\workers.py:241:                cv2.rectangle(annotated,
+ (x1, y1), (x2, y2), (255, 0, 0), 2)
+  gui\workers.py:242:                cv2.putText(
+  gui\workers.py:243:                    annotated,
+> gui\workers.py:244:                    f"{class_name} {conf
+:.2f}",
+  gui\workers.py:245:                    (x1, max(20, y1 - 10
+)),
+  gui\workers.py:246:                    cv2.FONT_HERSHEY_SIM
+PLEX,
+  gui\workers.py:247:                    0.65,
+  gui\workers.py:248:                    (255, 0, 0),
+  gui\workers.py:249:                    2,
+  gui\workers.py:250:                )
+  gui\workers.py:251:
+  gui\workers.py:252:                detections_for_log.appen
+d(
+> gui\workers.py:253:                    f"{current_time_text
+} | {class_name} | {conf:.2%}"
+  gui\workers.py:254:                )
+  gui\workers.py:255:
+  gui\workers.py:256:        return annotated, detections_for
+_log
+  gui\workers.py:257:
+
+

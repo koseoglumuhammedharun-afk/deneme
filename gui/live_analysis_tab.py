@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QTextEdit,
     QFrame,
+    QSlider,
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -27,7 +28,9 @@ def create_live_analysis_ui(main_layout, parent_window):
     title.setFont(title_font)
     main_layout.addWidget(title)
 
-    # Kontrol alani
+    # ---------------------------------------------------------
+    # UST KONTROL ALANI
+    # ---------------------------------------------------------
     control_frame = QFrame()
     control_frame.setStyleSheet("""
         QFrame {
@@ -36,6 +39,7 @@ def create_live_analysis_ui(main_layout, parent_window):
             background-color: #EBF5FB;
         }
     """)
+
     control_layout = QHBoxLayout()
     control_layout.setContentsMargins(12, 12, 12, 12)
     control_layout.setSpacing(10)
@@ -45,11 +49,17 @@ def create_live_analysis_ui(main_layout, parent_window):
     parent_window.live_select_video_btn.clicked.connect(parent_window.select_live_video)
     control_layout.addWidget(parent_window.live_select_video_btn)
 
-    parent_window.live_start_btn = QPushButton("Canli Takibi Baslat")
-    parent_window.live_start_btn.setMinimumHeight(42)
-    parent_window.live_start_btn.setEnabled(False)
-    parent_window.live_start_btn.clicked.connect(parent_window.start_live_video_tracking)
-    control_layout.addWidget(parent_window.live_start_btn)
+    parent_window.live_play_btn = QPushButton("Oynat / Devam Et")
+    parent_window.live_play_btn.setMinimumHeight(42)
+    parent_window.live_play_btn.setEnabled(False)
+    parent_window.live_play_btn.clicked.connect(parent_window.start_live_video_tracking)
+    control_layout.addWidget(parent_window.live_play_btn)
+
+    parent_window.live_pause_btn = QPushButton("Duraklat")
+    parent_window.live_pause_btn.setMinimumHeight(42)
+    parent_window.live_pause_btn.setEnabled(False)
+    parent_window.live_pause_btn.clicked.connect(parent_window.pause_live_video_tracking)
+    control_layout.addWidget(parent_window.live_pause_btn)
 
     parent_window.live_stop_btn = QPushButton("Durdur")
     parent_window.live_stop_btn.setMinimumHeight(42)
@@ -57,16 +67,26 @@ def create_live_analysis_ui(main_layout, parent_window):
     parent_window.live_stop_btn.clicked.connect(parent_window.stop_live_video_tracking)
     control_layout.addWidget(parent_window.live_stop_btn)
 
+    # Geriye donuk uyumluluk
+    parent_window.live_start_btn = parent_window.live_play_btn
+
     control_layout.addStretch()
 
     parent_window.live_video_file_label = QLabel("Video secilmedi")
-    parent_window.live_video_file_label.setStyleSheet("color: #2C3E50;")
+    parent_window.live_video_file_label.setStyleSheet("""
+        QLabel {
+            color: #2C3E50;
+            font-weight: 500;
+        }
+    """)
     control_layout.addWidget(parent_window.live_video_file_label)
 
     control_frame.setLayout(control_layout)
     main_layout.addWidget(control_frame)
 
-    # Video goruntu alani
+    # ---------------------------------------------------------
+    # VIDEO GORUNTU ALANI
+    # ---------------------------------------------------------
     video_frame = QFrame()
     video_frame.setStyleSheet("""
         QFrame {
@@ -75,8 +95,10 @@ def create_live_analysis_ui(main_layout, parent_window):
             background-color: #111111;
         }
     """)
+
     video_layout = QVBoxLayout()
     video_layout.setContentsMargins(10, 10, 10, 10)
+    video_layout.setSpacing(10)
 
     parent_window.live_video_label = QLabel("Canli analiz goruntusu burada gosterilecek")
     parent_window.live_video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -89,13 +111,87 @@ def create_live_analysis_ui(main_layout, parent_window):
             font-size: 12px;
         }
     """)
-    video_layout.addWidget(parent_window.live_video_label)
+    video_layout.addWidget(parent_window.live_video_label, 1)
+
+    # ---------------------------------------------------------
+    # VIDEO PLAYER ZAMAN CUBUGU
+    # ---------------------------------------------------------
+    timeline_frame = QFrame()
+    timeline_frame.setStyleSheet("""
+        QFrame {
+            border: 1px solid #2C3E50;
+            border-radius: 6px;
+            background-color: #1C1C1C;
+        }
+    """)
+
+    timeline_layout = QHBoxLayout()
+    timeline_layout.setContentsMargins(10, 8, 10, 8)
+    timeline_layout.setSpacing(10)
+
+    parent_window.live_current_time_label = QLabel("00:00")
+    parent_window.live_current_time_label.setMinimumWidth(55)
+    parent_window.live_current_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    parent_window.live_current_time_label.setStyleSheet("""
+        QLabel {
+            color: #ECF0F1;
+            font-weight: bold;
+            background: transparent;
+        }
+    """)
+    timeline_layout.addWidget(parent_window.live_current_time_label)
+
+    parent_window.live_timeline_slider = QSlider(Qt.Orientation.Horizontal)
+    parent_window.live_timeline_slider.setRange(0, 0)
+    parent_window.live_timeline_slider.setValue(0)
+    parent_window.live_timeline_slider.setEnabled(True)
+    parent_window.live_timeline_slider.sliderPressed.connect(parent_window.on_live_slider_pressed)
+    parent_window.live_timeline_slider.sliderMoved.connect(parent_window.on_live_slider_moved)
+    parent_window.live_timeline_slider.sliderReleased.connect(parent_window.on_live_slider_released)
+    parent_window.live_timeline_slider.setStyleSheet("""
+        QSlider::groove:horizontal {
+            border: 1px solid #566573;
+            height: 8px;
+            background: #2C3E50;
+            border-radius: 4px;
+        }
+        QSlider::sub-page:horizontal {
+            background: #3498DB;
+            border-radius: 4px;
+        }
+        QSlider::handle:horizontal {
+            background: #ECF0F1;
+            border: 1px solid #BDC3C7;
+            width: 16px;
+            margin: -5px 0;
+            border-radius: 8px;
+        }
+    """)
+    timeline_layout.addWidget(parent_window.live_timeline_slider, 1)
+
+    parent_window.live_total_time_label = QLabel("00:00")
+    parent_window.live_total_time_label.setMinimumWidth(55)
+    parent_window.live_total_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    parent_window.live_total_time_label.setStyleSheet("""
+        QLabel {
+            color: #ECF0F1;
+            font-weight: bold;
+            background: transparent;
+        }
+    """)
+    timeline_layout.addWidget(parent_window.live_total_time_label)
+
+    timeline_frame.setLayout(timeline_layout)
+    video_layout.addWidget(timeline_frame)
 
     video_frame.setLayout(video_layout)
     main_layout.addWidget(video_frame, 1)
 
-    # Alt bilgi
+    # ---------------------------------------------------------
+    # ALT BILGI ALANI
+    # ---------------------------------------------------------
     bottom_layout = QHBoxLayout()
+    bottom_layout.setSpacing(12)
 
     info_frame = QFrame()
     info_frame.setStyleSheet("""
@@ -105,8 +201,10 @@ def create_live_analysis_ui(main_layout, parent_window):
             background-color: #F8F9F9;
         }
     """)
+
     info_layout = QVBoxLayout()
     info_layout.setContentsMargins(10, 10, 10, 10)
+    info_layout.setSpacing(6)
 
     info_title = QLabel("Canli Durum")
     info_title.setStyleSheet("font-weight: bold;")
@@ -132,8 +230,10 @@ def create_live_analysis_ui(main_layout, parent_window):
             background-color: #FFFFFF;
         }
     """)
+
     log_layout = QVBoxLayout()
     log_layout.setContentsMargins(10, 10, 10, 10)
+    log_layout.setSpacing(6)
 
     log_title = QLabel("Canli Log")
     log_title.setStyleSheet("font-weight: bold;")

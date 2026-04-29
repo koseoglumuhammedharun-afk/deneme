@@ -28,13 +28,20 @@ from PyQt5.QtWidgets import (
     QMainWindow,
     QWidget,
     QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
     QTabWidget,
     QMessageBox,
     QFileDialog,
     QProgressBar,
     QInputDialog,
+    QDialog,
+    QScrollArea,
+    QLabel,
+    QPushButton,
+    QComboBox,
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QObject, pyqtSignal, QThread
 from PyQt5.QtGui import QPixmap, QImage
 
 import config
@@ -50,6 +57,240 @@ from gui import (
 from gui.workers import AnalysisWorker, LiveVideoWorker
 
 logger = setup_logging("GUI")
+
+
+class TrainingTaskWorker(QObject):
+    """
+    Egitim islemlerini GUI'yi dondurmadan calistiran worker.
+
+    Desteklenen modlar:
+    - category_train: Secili kategoriyi egitir.
+    - prepare_combined: Kategorileri birlestirip weapon_dataset olusturur.
+    - combined_train: Kategorileri birlestirir ve final modeli egitir.
+    """
+
+    progress_update = pyqtSignal(int, str)
+    log_update = pyqtSignal(str)
+    task_complete = pyqtSignal(str)
+    error_occurred = pyqtSignal(str)
+    finished = pyqtSignal()
+
+    def __init__(self, model_trainer: ModelTrainer, mode: str, payload: dict):
+        super().__init__()
+        self.model_trainer = model_trainer
+        self.mode = mode
+        self.payload = payload or {}
+
+    def run(self):
+        try:
+            if self.mode == "category_train":
+                self._run_category_training()
+            elif self.mode == "prepare_combined":
+                self._run_prepare_combined_dataset()
+            elif self.mode == "combined_train":
+                self._run_combined_training()
+            else:
+                raise RuntimeError(f"Bilinmeyen egitim gorevi: {self.mode}")
+        except Exception as e:
+            self.error_occurred.emit(str(e))
+        finally:
+            self.finished.emit()
+
+    def _emit_progress(self, percent: int, message: str):
+        try:
+            percent = int(percent)
+        except Exception:
+            percent = 0
+
+        self.progress_update.emit(percent, str(message))
+
+    def _progress_callback(self, percent: int, message: str):
+        self._emit_progress(percent, message)
+
+    def _log_validation(self, validation: dict):
+        for split, split_stats in validation.get("stats", {}).items():
+            self.log_update.emit(
+                f"[{split}] images={split_stats.get('images', 0)}, "
+                f"labels={split_stats.get('labels', 0)}, "
+                f"invalid_lines={split_stats.get('invalid_label_lines', 0)}"
+            )
+
+    def _run_category_training(self):
+        category = self.payload.get("category", "default")
+        epochs = self.payload.get("epochs", 50)
+        batch_size = self.payload.get("batch_size", 16)
+        imgsz = self.payload.get("imgsz", 640)
+        class_names = self.payload.get("class_names") or list(getattr(config, "CLASS_NAMES", ["obus"]))
+
+        self._emit_progress(0, f"Kategori '{category}' icin egitim hazirlaniyor...")
+        self.log_update.emit(f"Kategori '{category}' icin model egitimi baslaniyor...")
+        self.log_update.emit(f"Siniflar: {class_names}")
+        self.log_update.emit("Dataset YAML olusturuluyor...")
+
+        yaml_path = self.model_trainer.create_dataset_yaml(
+            category=category,
+            class_names=class_names,
+        )
+
+        if not yaml_path:
+            raise RuntimeError("Dataset YAML olusturulamadi.")
+
+        self.log_update.emit(f"YAML hazir: {yaml_path}")
+        self.log_update.emit("Dataset dogrulaniyor...")
+
+        validation = self.model_trainer.validate_dataset(
+            category=category,
+            class_names=class_names,
+        )
+
+        self._log_validation(validation)
+
+        if not validation.get("ok", False):
+            first_errors = validation.get("errors", [])[:10]
+            error_text = "\n".join(first_errors) if first_errors else "Bilinmeyen dataset hatasi"
+            self.log_update.emit("Dataset dogrulama basarisiz:")
+            self.log_update.emit(error_text)
+            raise RuntimeError(error_text)
+
+        self.log_update.emit("Model egitimi baslaniyor...")
+
+        trained_model_path = self.model_trainer.train_model(
+            category=category,
+            epochs=epochs,
+            batch_size=batch_size,
+            imgsz=imgsz,
+            progress_callback=self._progress_callback,
+            class_names=class_names,
+            clear_cache=True,
+        )
+
+        if not trained_model_path:
+            raise RuntimeError("Egitim tamamlanamadi veya model kaydedilemedi.")
+
+        self._emit_progress(100, "Egitim tamamlandi!")
+        self.task_complete.emit(f"Egitim tamamlandi! Model: {trained_model_path}")
+
+    def _run_prepare_combined_dataset(self):
+        source_categories = self.payload.get("source_categories") or []
+        target_category = self.payload.get("target_category", "weapon_dataset")
+        class_names = self.payload.get("class_names") or list(getattr(config, "CLASS_NAMES", ["obus"]))
+
+        self._emit_progress(0, "Birlesik dataset hazirlaniyor...")
+        self.log_update.emit("Birlesik dataset hazirlama basladi...")
+        self.log_update.emit(f"Kaynak kategoriler: {source_categories}")
+        self.log_update.emit(f"Hedef dataset: {target_category}")
+
+        summary = self.model_trainer.prepare_combined_dataset(
+            source_categories=source_categories,
+            target_category=target_category,
+            overwrite=True,
+            class_names=class_names,
+            progress_callback=self._progress_callback,
+        )
+
+        validation = summary.get("validation", {})
+
+        self.log_update.emit("")
+        self.log_update.emit("Birlesik dataset ozeti:")
+        self.log_update.emit(f"Hedef klasor: {summary.get('target_dir')}")
+        self.log_update.emit(f"Kopyalanan resim: {summary.get('copied_images', 0)}")
+        self.log_update.emit(f"Kopyalanan label: {summary.get('copied_labels', 0)}")
+        self.log_update.emit(f"Eksik label: {summary.get('missing_labels', 0)}")
+        self.log_update.emit(f"Atlanan dosya: {summary.get('skipped_files', 0)}")
+
+        for split, split_stats in summary.get("split_stats", {}).items():
+            self.log_update.emit(
+                f"[{split}] images={split_stats.get('images', 0)}, "
+                f"labels={split_stats.get('labels', 0)}"
+            )
+
+        if validation:
+            self.log_update.emit("")
+            self.log_update.emit("Birlesik dataset dogrulama:")
+            self._log_validation(validation)
+
+        if not validation.get("ok", False):
+            first_errors = validation.get("errors", [])[:10]
+            error_text = "\n".join(first_errors) if first_errors else "Bilinmeyen dataset hatasi"
+            raise RuntimeError(error_text)
+
+        self._emit_progress(100, "Birlesik dataset hazirlandi.")
+        self.task_complete.emit(
+            f"Birlesik dataset hazirlandi: {target_category}\n"
+            f"Kopyalanan resim: {summary.get('copied_images', 0)}\n"
+            f"Kopyalanan label: {summary.get('copied_labels', 0)}"
+        )
+
+    def _run_combined_training(self):
+        source_categories = self.payload.get("source_categories") or []
+        target_category = self.payload.get("target_category", "weapon_dataset")
+        epochs = self.payload.get("epochs", 50)
+        batch_size = self.payload.get("batch_size", 16)
+        imgsz = self.payload.get("imgsz", 640)
+        class_names = self.payload.get("class_names") or list(getattr(config, "CLASS_NAMES", ["obus"]))
+
+        self._emit_progress(0, "Birlesik final model egitimi hazirlaniyor...")
+        self.log_update.emit("Birlesik final model egitimi baslaniyor...")
+        self.log_update.emit(f"Kaynak kategoriler: {source_categories}")
+        self.log_update.emit(f"Hedef dataset: {target_category}")
+        self.log_update.emit(f"Siniflar: {class_names}")
+
+        summary = self.model_trainer.prepare_combined_dataset(
+            source_categories=source_categories,
+            target_category=target_category,
+            overwrite=True,
+            class_names=class_names,
+            progress_callback=self._progress_callback,
+        )
+
+        validation = summary.get("validation", {})
+
+        self.log_update.emit("")
+        self.log_update.emit("Birlesik dataset ozeti:")
+        self.log_update.emit(f"Kopyalanan resim: {summary.get('copied_images', 0)}")
+        self.log_update.emit(f"Kopyalanan label: {summary.get('copied_labels', 0)}")
+        self.log_update.emit(f"Eksik label: {summary.get('missing_labels', 0)}")
+        self.log_update.emit(f"Atlanan dosya: {summary.get('skipped_files', 0)}")
+
+        self._log_validation(validation)
+
+        if not validation.get("ok", False):
+            first_errors = validation.get("errors", [])[:10]
+            error_text = "\n".join(first_errors) if first_errors else "Bilinmeyen dataset hatasi"
+            raise RuntimeError(error_text)
+
+        self.log_update.emit("")
+        self.log_update.emit("Birlesik dataset hazir. Final model egitimi basliyor...")
+
+        def mapped_progress_callback(percent: int, message: str):
+            try:
+                percent = int(percent)
+            except Exception:
+                percent = 0
+
+            if percent < 0:
+                mapped_percent = percent
+            else:
+                mapped_percent = 20 + int((max(0, min(100, percent)) / 100.0) * 80)
+                mapped_percent = max(20, min(100, mapped_percent))
+
+            self._emit_progress(mapped_percent, message)
+
+        trained_model_path = self.model_trainer.train_model(
+            category=target_category,
+            epochs=epochs,
+            batch_size=batch_size,
+            imgsz=imgsz,
+            progress_callback=mapped_progress_callback,
+            class_names=class_names,
+            clear_cache=True,
+        )
+
+        if not trained_model_path:
+            raise RuntimeError("Birlesik final model egitimi tamamlanamadi veya model kaydedilemedi.")
+
+        self._emit_progress(100, "Birlesik final model egitimi tamamlandi!")
+        self.task_complete.emit(f"Birlesik final model egitimi tamamlandi! Model: {trained_model_path}")
 
 
 class MainWindow(QMainWindow):
@@ -77,7 +318,10 @@ class MainWindow(QMainWindow):
         self.current_analysis_index = 0
         self.ui_ready = False
 
-        # Canli takip
+        self.training_thread = None
+        self.training_worker = None
+        self.training_task_running = False
+
         self.live_video_path = None
         self.live_video_worker = None
         self.live_total_frames = 0
@@ -98,21 +342,18 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
 
-        # TAB 1: Analiz
         analysis_widget = QWidget()
         analysis_layout = QVBoxLayout()
         create_analysis_ui(analysis_layout, self)
         analysis_widget.setLayout(analysis_layout)
         self.tabs.addTab(analysis_widget, "Analiz")
 
-        # TAB 2: Canli Takip
         live_widget = QWidget()
         live_layout = QVBoxLayout()
         create_live_analysis_ui(live_layout, self)
         live_widget.setLayout(live_layout)
         self.tabs.addTab(live_widget, "Canli Takip")
 
-        # TAB 3: Model Egitimi
         training_widget = QWidget()
         training_layout = QVBoxLayout()
         create_training_ui(training_layout, self)
@@ -225,9 +466,18 @@ class MainWindow(QMainWindow):
     def update_threshold(self, *_args):
         """Guven esigini guncelle"""
         value = self.threshold_slider.value() / 100.0
-        self.threshold_value_label.setText(f"{value:.0%}")
+        model_value = config.normalize_confidence_threshold(value)
+
+        if value <= 0:
+            self.threshold_value_label.setText("%0")
+        else:
+            self.threshold_value_label.setText(f"{value:.0%}")
+
         if self.detector:
-            self.detector.set_confidence_threshold(value)
+            self.detector.set_confidence_threshold(model_value)
+
+        if value <= 0:
+            self.log("Guven esigi %0 test modunda: model esigi 0.001 olarak uygulandi.")
 
     def start_analysis(self):
         """Analiz baslat"""
@@ -332,7 +582,23 @@ class MainWindow(QMainWindow):
         self.status_value.setStyleSheet("color: green;" if detected else "color: red;")
 
         confidence = self.analysis_results.get("confidence", 0)
-        self.conf_value.setText(f"{confidence:.2%}")
+        detection_count = self.analysis_results.get("detection_count", 0)
+        crop_count = self.analysis_results.get("crop_count", 0)
+        frame_detection_count = self.analysis_results.get("frame_detection_count", 0)
+        class_counts = self.analysis_results.get("class_counts") or {}
+
+        conf_lines = [f"{confidence:.2%}"]
+        if detection_count:
+            conf_lines.append(f"Toplam tespit sayisi: {detection_count}")
+        if frame_detection_count:
+            conf_lines.append(f"Gosterilecek karedeki unsur: {frame_detection_count}")
+        if crop_count:
+            conf_lines.append(f"Kirpinti sayisi: {crop_count}")
+        if class_counts:
+            top_classes = sorted(class_counts.items(), key=lambda item: item[1], reverse=True)[:4]
+            class_text = ", ".join(f"{config.get_class_display_name(k)}: {v}" for k, v in top_classes)
+            conf_lines.append(class_text)
+        self.conf_value.setText("\n".join(conf_lines))
 
         self.capture_date_value.setText(self.analysis_results.get("capture_date", "N/A"))
         self.capture_time_value.setText(self.analysis_results.get("capture_time", "N/A"))
@@ -348,20 +614,754 @@ class MainWindow(QMainWindow):
         self.time_video_value.setText(time_video if time_video else "N/A")
 
         weapon_info = (
-            self.analysis_results.get("weapon_type")
+            self.analysis_results.get("evidence_summary")
+            or self.analysis_results.get("weapon_display")
+            or self.analysis_results.get("weapon_type")
             or self.analysis_results.get("class_name")
             or "N/A"
         )
         self.weapon_value.setText(str(weapon_info))
 
-        self.crop_btn.setEnabled(detected and self.analysis_results.get("crop_image") is not None)
+        crop_items = self.analysis_results.get("crop_items") or []
+        self.crop_btn.setEnabled(detected and (bool(crop_items) or self.analysis_results.get("crop_image") is not None))
         self.export_excel_btn.setEnabled(True)
         self.export_json_btn.setEnabled(True)
 
+    def _cv_bgr_to_pixmap(self, image_bgr):
+        """OpenCV BGR/Numpy goruntuyu QPixmap'e cevir. Kaynak goruntu degistirilmez."""
+        if image_bgr is None:
+            return None
+
+        frame_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        h, w, ch = frame_rgb.shape
+        bytes_per_line = ch * w
+        qimg = QImage(frame_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
+        return QPixmap.fromImage(qimg)
+
+
+    def _feedback_timestamp(self) -> str:
+        """Feedback dosyalari icin benzersiz zaman etiketi uret."""
+        return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+    def _safe_name(self, value: str) -> str:
+        """Dosya adi icin guvenli metin uret."""
+        value = str(value or "item").strip().lower()
+        cleaned = []
+        for ch in value:
+            if ch.isalnum() or ch in ("_", "-", "."):
+                cleaned.append(ch)
+            else:
+                cleaned.append("_")
+        text = "".join(cleaned).strip("_")
+        while "__" in text:
+            text = text.replace("__", "_")
+        return text or "item"
+
+    def _ensure_dir(self, path: Path) -> Path:
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _write_image_lossless(self, path: Path, image) -> bool:
+        """
+        Goruntuyu kaynak kaliteyi bozmadan kaydetmeye calisir.
+        PNG kayit lossless oldugu icin egitim feedbacklerinde varsayilan olarak kullanilir.
+        """
+        if image is None:
+            return False
+        self._ensure_dir(path.parent)
+        return bool(cv2.imwrite(str(path), image))
+
+    def _append_feedback_log(self, record: dict):
+        """Kullanici feedback aksiyonlarini JSONL olarak kaydet."""
+        try:
+            log_path = Path(getattr(config, "FEEDBACK_LOG_PATH", Path(config.TRAINING_DATA_DIR) / "feedback_actions.jsonl"))
+            self._ensure_dir(log_path.parent)
+            safe_record = {}
+            for key, value in (record or {}).items():
+                if key in {"image", "crop_image", "marked_crop_image", "original_image"}:
+                    continue
+                if isinstance(value, Path):
+                    safe_record[key] = str(value)
+                elif isinstance(value, tuple):
+                    safe_record[key] = list(value)
+                else:
+                    safe_record[key] = value
+            safe_record["saved_at"] = datetime.now().isoformat()
+            with log_path.open("a", encoding="utf-8") as f:
+                import json
+                f.write(json.dumps(safe_record, ensure_ascii=False) + "\n")
+        except Exception as e:
+            self.log(f"Feedback log yazilamadi: {e}")
+
+    def _category_for_class(self, class_name: str) -> str:
+        """Sinif adindan egitim kategorisini bul."""
+        weapon = config.get_weapon_from_class(class_name)
+        if weapon in {"nora_b52", "zuzana", "obus"}:
+            return weapon
+        raise ValueError(f"Bu sinif icin kategori bulunamadi: {class_name}")
+
+    def _yolo_bbox_from_original_bbox(self, bbox, image_shape, crop_bounds=None):
+        """
+        Orijinal bbox bilgisini secilen kayit goruntusune gore YOLO formatina cevir.
+
+        crop_bounds verilirse bbox, kirpinti koordinatina donusturulur.
+        Verilmezse bbox tam kare/resim koordinati kabul edilir.
+        """
+        if bbox is None:
+            raise ValueError("BBox bilgisi yok")
+
+        x1, y1, x2, y2 = [float(v) for v in bbox]
+
+        if crop_bounds is not None:
+            cx1, cy1, cx2, cy2 = [float(v) for v in crop_bounds]
+            x1 -= cx1
+            x2 -= cx1
+            y1 -= cy1
+            y2 -= cy1
+
+        h, w = image_shape[:2]
+        if w <= 0 or h <= 0:
+            raise ValueError("Goruntu boyutu gecersiz")
+
+        x1 = max(0.0, min(float(w), x1))
+        x2 = max(0.0, min(float(w), x2))
+        y1 = max(0.0, min(float(h), y1))
+        y2 = max(0.0, min(float(h), y2))
+
+        if x2 <= x1 or y2 <= y1:
+            raise ValueError("BBox kayit goruntusunun disinda veya gecersiz")
+
+        xc = ((x1 + x2) / 2.0) / w
+        yc = ((y1 + y2) / 2.0) / h
+        bw = (x2 - x1) / w
+        bh = (y2 - y1) / h
+
+        return (
+            max(0.0, min(1.0, xc)),
+            max(0.0, min(1.0, yc)),
+            max(0.000001, min(1.0, bw)),
+            max(0.000001, min(1.0, bh)),
+        )
+
+    def _save_positive_sample(self, item: dict, class_name: str, use_full_frame: bool = False):
+        """
+        Dogru hedef/parca feedbackini ilgili egitim klasorune image + label olarak kaydet.
+
+        use_full_frame=False:
+            Sadece kirpinti kaydedilir, bbox kirpinti koordinatina gore label'lanir.
+        use_full_frame=True:
+            Orijinal resim/frame kaydedilir, bbox tam kare koordinatina gore label'lanir.
+        """
+        class_name = str(class_name or "").strip()
+        if class_name not in getattr(config, "CLASS_NAMES", []):
+            QMessageBox.warning(self, "Sinif Secimi Gerekli", "Gecerli bir hedef/parca sinifi secmelisin.")
+            return
+
+        try:
+            category = self._category_for_class(class_name)
+            class_id = config.get_class_id(class_name)
+
+            if use_full_frame:
+                image = (self.analysis_results or {}).get("original_image")
+                crop_bounds = None
+                suffix = "fullframe"
+            else:
+                image = item.get("crop_image")
+                crop_bounds = item.get("crop_bounds")
+                suffix = "crop"
+
+            if image is None:
+                raise RuntimeError("Kaydedilecek goruntu bulunamadi.")
+
+            bbox = item.get("bbox")
+            yolo = self._yolo_bbox_from_original_bbox(bbox, image.shape, crop_bounds=crop_bounds)
+
+            base_name = (
+                f"feedback_pos_{self._safe_name(class_name)}_{suffix}_"
+                f"{self._feedback_timestamp()}"
+            )
+
+            image_dir = Path(config.TRAINING_DATA_DIR) / category / "images" / "train"
+            label_dir = Path(config.TRAINING_DATA_DIR) / category / "labels" / "train"
+            self._ensure_dir(image_dir)
+            self._ensure_dir(label_dir)
+
+            image_path = image_dir / f"{base_name}.png"
+            label_path = label_dir / f"{base_name}.txt"
+
+            if not self._write_image_lossless(image_path, image):
+                raise RuntimeError("Goruntu kaydedilemedi.")
+
+            label_path.write_text(
+                f"{class_id} {yolo[0]:.6f} {yolo[1]:.6f} {yolo[2]:.6f} {yolo[3]:.6f}\n",
+                encoding="utf-8",
+            )
+
+            self._append_feedback_log({
+                "action": "positive_sample",
+                "class_name": class_name,
+                "class_id": class_id,
+                "category": category,
+                "use_full_frame": use_full_frame,
+                "image_path": image_path,
+                "label_path": label_path,
+                "bbox": item.get("bbox"),
+                "crop_bounds": item.get("crop_bounds"),
+                "confidence": item.get("confidence"),
+                "source_filename": (self.analysis_results or {}).get("filename"),
+            })
+
+            self.log(f"Pozitif egitim ornegi kaydedildi: {image_path}")
+            QMessageBox.information(
+                self,
+                "Kaydedildi",
+                f"Pozitif egitim ornegi kaydedildi:\n{image_path}\n\nLabel:\n{label_path}",
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Kayit Hatasi", f"Pozitif ornek kaydedilemedi:\n{e}")
+            self.log(f"Pozitif feedback kayit hatasi: {e}")
+
+    def _save_negative_crop_to_background(self, item: dict, reason: str = "wrong_alarm"):
+        """Yanlis alarm kirpintisini background klasorune bos label ile kaydet."""
+        try:
+            image = item.get("crop_image")
+            if image is None:
+                raise RuntimeError("Kirpinti goruntusu bulunamadi.")
+
+            base_name = f"feedback_neg_{self._safe_name(reason)}_{self._feedback_timestamp()}"
+            image_dir = Path(config.TRAINING_DATA_DIR) / "background" / "images" / "train"
+            label_dir = Path(config.TRAINING_DATA_DIR) / "background" / "labels" / "train"
+            self._ensure_dir(image_dir)
+            self._ensure_dir(label_dir)
+
+            image_path = image_dir / f"{base_name}.png"
+            label_path = label_dir / f"{base_name}.txt"
+
+            if not self._write_image_lossless(image_path, image):
+                raise RuntimeError("Background kirpinti goruntusu kaydedilemedi.")
+
+            label_path.write_text("", encoding="utf-8")
+
+            self._append_feedback_log({
+                "action": "negative_crop_background",
+                "reason": reason,
+                "image_path": image_path,
+                "label_path": label_path,
+                "bbox": item.get("bbox"),
+                "crop_bounds": item.get("crop_bounds"),
+                "confidence": item.get("confidence"),
+                "predicted_class": item.get("class_name"),
+                "source_filename": (self.analysis_results or {}).get("filename"),
+            })
+
+            self.log(f"Yanlis alarm background'a eklendi: {image_path}")
+            QMessageBox.information(
+                self,
+                "Background'a Eklendi",
+                f"Yanlis alarm kirpintisi background'a kaydedildi:\n{image_path}",
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Kayit Hatasi", f"Background ornegi kaydedilemedi:\n{e}")
+            self.log(f"Negatif feedback kayit hatasi: {e}")
+
+    def _save_full_frame_background(self):
+        """
+        Tam karede/resimde hic silah yoksa tum kareyi background'a bos label olarak kaydet.
+        Bu aksiyon riskli oldugu icin onay ister.
+        """
+        image = (self.analysis_results or {}).get("original_image")
+        if image is None:
+            QMessageBox.warning(self, "Goruntu Yok", "Tam kare/resim goruntusu bulunamadi.")
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Tam Kare Background Onayi",
+            "Bu tam karede/resimde gercekten Nora, Zuzana veya obus parcasi olmadigindan emin misin?\n\n"
+            "Eger karede hedef varsa bunu background'a eklemek modeli bozabilir.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        try:
+            base_name = f"feedback_full_background_{self._feedback_timestamp()}"
+            image_dir = Path(config.TRAINING_DATA_DIR) / "background" / "images" / "train"
+            label_dir = Path(config.TRAINING_DATA_DIR) / "background" / "labels" / "train"
+            self._ensure_dir(image_dir)
+            self._ensure_dir(label_dir)
+
+            image_path = image_dir / f"{base_name}.png"
+            label_path = label_dir / f"{base_name}.txt"
+
+            if not self._write_image_lossless(image_path, image):
+                raise RuntimeError("Tam kare background goruntusu kaydedilemedi.")
+
+            label_path.write_text("", encoding="utf-8")
+
+            self._append_feedback_log({
+                "action": "full_frame_background",
+                "image_path": image_path,
+                "label_path": label_path,
+                "source_filename": (self.analysis_results or {}).get("filename"),
+            })
+
+            self.log(f"Tam kare background'a eklendi: {image_path}")
+            QMessageBox.information(
+                self,
+                "Background'a Eklendi",
+                f"Tam kare/resim background'a kaydedildi:\n{image_path}",
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Kayit Hatasi", f"Tam kare background'a eklenemedi:\n{e}")
+            self.log(f"Tam kare background kayit hatasi: {e}")
+
+    def _save_crop_to_review_bucket(self, item: dict, bucket_name: str, reason: str):
+        """Kararsiz, manuel label gereken, bulanık veya referans kirpintilarini ayri klasorlere kaydet."""
+        try:
+            image = item.get("crop_image")
+            marked = item.get("marked_crop_image")
+            if image is None and marked is None:
+                raise RuntimeError("Kaydedilecek kirpinti yok.")
+
+            root = Path(config.TRAINING_DATA_DIR) / bucket_name
+            self._ensure_dir(root)
+            base_name = f"feedback_{self._safe_name(reason)}_{self._feedback_timestamp()}"
+
+            saved_paths = []
+            if image is not None:
+                raw_path = root / f"{base_name}_raw.png"
+                self._write_image_lossless(raw_path, image)
+                saved_paths.append(raw_path)
+
+            if marked is not None:
+                marked_path = root / f"{base_name}_marked.png"
+                self._write_image_lossless(marked_path, marked)
+                saved_paths.append(marked_path)
+
+            meta_path = root / f"{base_name}.json"
+            meta = {
+                "reason": reason,
+                "bucket": bucket_name,
+                "source_filename": (self.analysis_results or {}).get("filename"),
+                "predicted_class": item.get("class_name"),
+                "display_name": item.get("display_name"),
+                "confidence": item.get("confidence"),
+                "bbox": item.get("bbox"),
+                "crop_bounds": item.get("crop_bounds"),
+                "saved_paths": [str(p) for p in saved_paths],
+                "saved_at": datetime.now().isoformat(),
+            }
+            import json
+            meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+            saved_paths.append(meta_path)
+
+            self._append_feedback_log({
+                "action": "review_bucket",
+                "reason": reason,
+                "bucket": bucket_name,
+                "paths": [str(p) for p in saved_paths],
+                "source_filename": (self.analysis_results or {}).get("filename"),
+            })
+
+            self.log(f"Kirpinti {bucket_name} klasorune kaydedildi: {root}")
+            QMessageBox.information(
+                self,
+                "Kaydedildi",
+                f"Kirpinti '{reason}' icin kaydedildi:\n{root}",
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Kayit Hatasi", f"Kirpinti kaydedilemedi:\n{e}")
+            self.log(f"Review feedback kayit hatasi: {e}")
+
+    def _save_single_crop_as(self, item: dict, marked: bool = True):
+        """Tek kirpintiyi kullanicinin sectigi dosyaya PNG olarak kaydet."""
+        image = item.get("marked_crop_image") if marked else item.get("crop_image")
+        if image is None:
+            QMessageBox.warning(self, "Kirpinti Yok", "Kaydedilecek kirpinti bulunamadi.")
+            return
+
+        default_name = (
+            f"{self._safe_name(item.get('class_name') or 'kirpinti')}_"
+            f"{float(item.get('confidence', 0) or 0):.2f}.png"
+        )
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Kırpıntıyı Farklı Kaydet",
+            default_name,
+            "PNG Görsel (*.png);;JPEG Görsel (*.jpg);;Tüm Dosyalar (*)",
+        )
+        if not file_path:
+            return
+
+        path = Path(file_path)
+        if path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+            path = path.with_suffix(".png")
+
+        try:
+            if not self._write_image_lossless(path, image):
+                raise RuntimeError("Dosya kaydedilemedi.")
+            self.log(f"Kırpıntı farklı kaydedildi: {path}")
+            QMessageBox.information(self, "Kaydedildi", f"Kırpıntı kaydedildi:\n{path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Kayit Hatasi", f"Kırpıntı kaydedilemedi:\n{e}")
+
+    def _save_all_crops_to_folder(self, crop_items):
+        """
+        Tum kirpintilari secilen klasore ham + isaretli PNG olarak kaydet.
+        Bu islem egitim klasorlerini degistirmez, sadece disari aktarir.
+        """
+        if not crop_items:
+            QMessageBox.warning(self, "Kirpinti Yok", "Kaydedilecek kirpinti yok.")
+            return
+
+        folder = QFileDialog.getExistingDirectory(self, "Kırpıntıların Kaydedileceği Klasörü Seç")
+        if not folder:
+            return
+
+        try:
+            root = Path(folder)
+            raw_dir = self._ensure_dir(root / "raw")
+            marked_dir = self._ensure_dir(root / "marked")
+            meta = []
+
+            for index, item in enumerate(crop_items, start=1):
+                class_name = self._safe_name(item.get("class_name") or "kirpinti")
+                conf_text = f"{float(item.get('confidence', 0) or 0):.3f}".replace(".", "_")
+                stem = f"{index:03d}_{class_name}_{conf_text}"
+
+                raw_path = raw_dir / f"{stem}.png"
+                marked_path = marked_dir / f"{stem}.png"
+
+                if item.get("crop_image") is not None:
+                    self._write_image_lossless(raw_path, item.get("crop_image"))
+                if item.get("marked_crop_image") is not None:
+                    self._write_image_lossless(marked_path, item.get("marked_crop_image"))
+
+                meta.append({
+                    "index": index,
+                    "class_name": item.get("class_name"),
+                    "display_name": item.get("display_name"),
+                    "decision": item.get("decision"),
+                    "confidence": item.get("confidence"),
+                    "bbox": item.get("bbox"),
+                    "raw_path": str(raw_path),
+                    "marked_path": str(marked_path),
+                })
+
+            import json
+            (root / "crop_metadata.json").write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+            self.log(f"Tum kirpintilar klasore kaydedildi: {root}")
+            QMessageBox.information(
+                self,
+                "Kaydedildi",
+                f"{len(crop_items)} kırpıntı ham ve işaretli olarak kaydedildi:\n{root}",
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Kayit Hatasi", f"Kırpıntılar kaydedilemedi:\n{e}")
+            self.log(f"Toplu kirpinti kayit hatasi: {e}")
+
+    def _show_multi_crop_dialog(self, crop_items):
+        """Bir karede/resimde bulunan tum supheli parca kirpintilarini goster ve feedback toplar."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Tespit Kırpıntıları ve Eğitim Feedback ({len(crop_items)})")
+        dialog.resize(1180, 820)
+
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(10)
+
+        info_label = QLabel(
+            "Bu ekran test/feedback ekranıdır. Her kırpıntıyı ayrı değerlendirebilirsin. "
+            "Yanlış alarmları background'a, doğru parçaları ilgili silah eğitim klasörüne kaydedebilirsin. "
+            "Kaynak fotoğraf/video değiştirilmez; kaydedilen eğitim örnekleri PNG olarak orijinal pikselden alınır."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #2C3E50; font-weight: 500;")
+        main_layout.addWidget(info_label)
+
+        warning_label = QLabel(
+            "Güvenlik notu: Karede gerçek hedef varsa 'Tam Karede Silah Yok' seçeneğini kullanma. "
+            "O durumda sadece yanlış kırpıntıyı background'a ekle."
+        )
+        warning_label.setWordWrap(True)
+        warning_label.setStyleSheet("color: #B45309; font-weight: bold;")
+        main_layout.addWidget(warning_label)
+
+        top_button_row = QHBoxLayout()
+
+        save_all_btn = QPushButton("Tüm Kırpıntıları Farklı Klasöre Kaydet")
+        save_all_btn.setMinimumHeight(34)
+        save_all_btn.clicked.connect(lambda _checked=False: self._save_all_crops_to_folder(crop_items))
+        top_button_row.addWidget(save_all_btn)
+
+        full_bg_btn = QPushButton("Tam Karede Silah Yok → Frame'i Background'a Ekle")
+        full_bg_btn.setMinimumHeight(34)
+        full_bg_btn.setStyleSheet("background-color: #F59E0B; color: white; font-weight: bold;")
+        full_bg_btn.clicked.connect(lambda _checked=False: self._save_full_frame_background())
+        top_button_row.addWidget(full_bg_btn)
+
+        top_button_row.addStretch()
+        main_layout.addLayout(top_button_row)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+
+        container = QWidget()
+        grid = QGridLayout()
+        grid.setContentsMargins(6, 6, 6, 6)
+        grid.setSpacing(14)
+
+        columns = 2
+        class_options = list(getattr(config, "CLASS_NAMES", []))
+
+        for idx, item in enumerate(crop_items):
+            card = QWidget()
+            card_layout = QVBoxLayout()
+            card_layout.setContentsMargins(8, 8, 8, 8)
+            card_layout.setSpacing(6)
+
+            title = item.get("decision") or item.get("display_name") or item.get("class_name") or "Tespit"
+            confidence = float(item.get("confidence", 0.0) or 0.0)
+            crop_size = item.get("crop_size")
+            size_text = f" | Kırpıntı: {crop_size[0]}x{crop_size[1]}" if crop_size else ""
+
+            title_label = QLabel(f"#{idx + 1} - {title} | Güven: {confidence:.2%}{size_text}")
+            title_label.setWordWrap(True)
+            title_label.setStyleSheet("font-weight: bold; color: #1F2937;")
+            card_layout.addWidget(title_label)
+
+            crop_image = item.get("marked_crop_image")
+            if crop_image is None:
+                crop_image = item.get("crop_image")
+            pixmap = self._cv_bgr_to_pixmap(crop_image)
+
+            image_label = QLabel()
+            image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            image_label.setMinimumSize(420, 250)
+            image_label.setStyleSheet("background-color: #111111; border: 1px solid #D1D5DB;")
+
+            if pixmap is not None:
+                scaled = pixmap.scaled(
+                    500,
+                    330,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                image_label.setPixmap(scaled)
+            else:
+                image_label.setText("Kırpıntı görüntüsü yok")
+
+            card_layout.addWidget(image_label)
+
+            bbox = item.get("bbox")
+            meta_label = QLabel(
+                f"Tahmin: {config.get_class_display_name(item.get('class_name', ''))} | "
+                f"Seviye: {item.get('detection_level', 'N/A')} | BBox: {bbox}"
+            )
+            meta_label.setWordWrap(True)
+            meta_label.setStyleSheet("color: #4B5563; font-size: 11px;")
+            card_layout.addWidget(meta_label)
+
+            class_row = QHBoxLayout()
+            class_row.addWidget(QLabel("Doğru sınıf:"))
+            class_combo = QComboBox()
+            for class_name in class_options:
+                class_combo.addItem(config.get_class_display_name(class_name), class_name)
+            predicted = item.get("class_name")
+            if predicted in class_options:
+                class_combo.setCurrentIndex(class_options.index(predicted))
+            class_row.addWidget(class_combo, 1)
+            card_layout.addLayout(class_row)
+
+            row1 = QHBoxLayout()
+            same_class_btn = QPushButton("Doğru - Aynı Sınıfla Eğitime Ekle")
+            same_class_btn.setMinimumHeight(32)
+            same_class_btn.setStyleSheet("background-color: #16A34A; color: white;")
+            same_class_btn.clicked.connect(
+                lambda _checked=False, it=item: self._save_positive_sample(
+                    it,
+                    it.get("class_name"),
+                    use_full_frame=False,
+                )
+            )
+            row1.addWidget(same_class_btn)
+
+            selected_class_btn = QPushButton("Doğru - Seçilen Sınıfla Eğitime Ekle")
+            selected_class_btn.setMinimumHeight(32)
+            selected_class_btn.setStyleSheet("background-color: #2563EB; color: white;")
+            selected_class_btn.clicked.connect(
+                lambda _checked=False, it=item, combo=class_combo: self._save_positive_sample(
+                    it,
+                    combo.currentData(),
+                    use_full_frame=False,
+                )
+            )
+            row1.addWidget(selected_class_btn)
+            card_layout.addLayout(row1)
+
+            row2 = QHBoxLayout()
+            full_positive_btn = QPushButton("Tam Kareyi Seçilen Sınıfla Kaydet")
+            full_positive_btn.setMinimumHeight(32)
+            full_positive_btn.setStyleSheet("background-color: #0F766E; color: white;")
+            full_positive_btn.clicked.connect(
+                lambda _checked=False, it=item, combo=class_combo: self._save_positive_sample(
+                    it,
+                    combo.currentData(),
+                    use_full_frame=True,
+                )
+            )
+            row2.addWidget(full_positive_btn)
+
+            false_crop_btn = QPushButton("Yanlış Alarm → Kırpıntıyı Background'a Ekle")
+            false_crop_btn.setMinimumHeight(32)
+            false_crop_btn.setStyleSheet("background-color: #DC2626; color: white;")
+            false_crop_btn.clicked.connect(
+                lambda _checked=False, it=item: self._save_negative_crop_to_background(
+                    it,
+                    reason="wrong_alarm_crop",
+                )
+            )
+            row2.addWidget(false_crop_btn)
+            card_layout.addLayout(row2)
+
+            row3 = QHBoxLayout()
+            target_exists_wrong_crop_btn = QPushButton("Hedef Var Ama Bu Kırpıntı Yanlış")
+            target_exists_wrong_crop_btn.setMinimumHeight(30)
+            target_exists_wrong_crop_btn.clicked.connect(
+                lambda _checked=False, it=item: self._save_negative_crop_to_background(
+                    it,
+                    reason="target_exists_but_this_crop_wrong",
+                )
+            )
+            row3.addWidget(target_exists_wrong_crop_btn)
+
+            manual_btn = QPushButton("Kutu Yanlış → Manuel Label'a At")
+            manual_btn.setMinimumHeight(30)
+            manual_btn.clicked.connect(
+                lambda _checked=False, it=item: self._save_crop_to_review_bucket(
+                    it,
+                    "feedback_manual_label_required",
+                    "bbox_wrong_object_correct",
+                )
+            )
+            row3.addWidget(manual_btn)
+            card_layout.addLayout(row3)
+
+            row4 = QHBoxLayout()
+            unsure_btn = QPushButton("Emin Değilim → İncelemeye At")
+            unsure_btn.setMinimumHeight(30)
+            unsure_btn.clicked.connect(
+                lambda _checked=False, it=item: self._save_crop_to_review_bucket(
+                    it,
+                    "feedback_review",
+                    "unsure_review",
+                )
+            )
+            row4.addWidget(unsure_btn)
+
+            blurry_btn = QPushButton("Bulanık/Kullanılmaz → Reddet")
+            blurry_btn.setMinimumHeight(30)
+            blurry_btn.clicked.connect(
+                lambda _checked=False, it=item: self._save_crop_to_review_bucket(
+                    it,
+                    "feedback_rejected",
+                    "blurry_unusable",
+                )
+            )
+            row4.addWidget(blurry_btn)
+            card_layout.addLayout(row4)
+
+            row5 = QHBoxLayout()
+            duplicate_btn = QPushButton("Tekrar/Gereksiz Benzer → Ayır")
+            duplicate_btn.setMinimumHeight(30)
+            duplicate_btn.clicked.connect(
+                lambda _checked=False, it=item: self._save_crop_to_review_bucket(
+                    it,
+                    "feedback_duplicate_or_unnecessary",
+                    "duplicate_or_unnecessary",
+                )
+            )
+            row5.addWidget(duplicate_btn)
+
+            reference_btn = QPushButton("Sadece Referans Olarak Sakla")
+            reference_btn.setMinimumHeight(30)
+            reference_btn.clicked.connect(
+                lambda _checked=False, it=item: self._save_crop_to_review_bucket(
+                    it,
+                    "feedback_reference",
+                    "reference_only",
+                )
+            )
+            row5.addWidget(reference_btn)
+            card_layout.addLayout(row5)
+
+            row6 = QHBoxLayout()
+            save_marked_btn = QPushButton("Bu İşaretli Kırpıntıyı Farklı Kaydet")
+            save_marked_btn.setMinimumHeight(30)
+            save_marked_btn.clicked.connect(
+                lambda _checked=False, it=item: self._save_single_crop_as(it, marked=True)
+            )
+            row6.addWidget(save_marked_btn)
+
+            save_raw_btn = QPushButton("Bu Ham Kırpıntıyı Farklı Kaydet")
+            save_raw_btn.setMinimumHeight(30)
+            save_raw_btn.clicked.connect(
+                lambda _checked=False, it=item: self._save_single_crop_as(it, marked=False)
+            )
+            row6.addWidget(save_raw_btn)
+            card_layout.addLayout(row6)
+
+            card.setLayout(card_layout)
+            card.setStyleSheet(
+                "QWidget { background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 8px; }"
+                "QLabel { border: none; }"
+                "QPushButton { padding: 4px; border-radius: 4px; }"
+            )
+
+            row = idx // columns
+            col = idx % columns
+            grid.addWidget(card, row, col)
+
+        container.setLayout(grid)
+        scroll.setWidget(container)
+        main_layout.addWidget(scroll, 1)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        close_btn = QPushButton("Kapat")
+        close_btn.setMinimumHeight(34)
+        close_btn.clicked.connect(dialog.accept)
+        button_row.addWidget(close_btn)
+        main_layout.addLayout(button_row)
+
+        dialog.setLayout(main_layout)
+        dialog.exec_()
+
     def view_crop(self):
-        """Kirpiyi goruntule"""
-        if not self.analysis_results or self.analysis_results.get("crop_image") is None:
-            QMessageBox.warning(self, "Kirpi Yok", "Tespit kirpisi mevcut degil")
+
+        """Tespit kirpintilarini goruntule."""
+        if not self.analysis_results:
+            QMessageBox.warning(self, "Kirpinti Yok", "Once analiz yapmalisin")
+            return
+
+        crop_items = self.analysis_results.get("crop_items") or []
+        if crop_items:
+            self._show_multi_crop_dialog(crop_items)
+            return
+
+        if self.analysis_results.get("crop_image") is None:
+            QMessageBox.warning(self, "Kirpinti Yok", "Tespit kirpintisi mevcut degil")
             return
 
         crop_viewer = CropViewerWindow(
@@ -488,7 +1488,12 @@ class MainWindow(QMainWindow):
             return frame, None
 
         try:
-            results = self.detector.model(frame, device=self.detector.device, verbose=False)
+            results = self.detector.model(
+                frame,
+                device=self.detector.device,
+                conf=self.detector._model_confidence_value(),
+                verbose=False,
+            )
             annotated = frame.copy()
             last_text = None
 
@@ -509,19 +1514,22 @@ class MainWindow(QMainWindow):
                     cls_id = int(class_ids[i]) if len(class_ids) > i else 0
                     class_name = self.detector._resolve_class_name(results[0], cls_id)
 
+                    display_name = getattr(config, "get_class_display_name", lambda x: x)(class_name)
+                    decision_text = config.get_weapon_decision(class_name, float(conf))
+
                     x1, y1, x2, y2 = box[0], box[1], box[2], box[3]
 
                     cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
                     cv2.putText(
                         annotated,
-                        f"{class_name} {conf:.2f}",
+                        f"{display_name} {conf:.2f}",
                         (x1, max(20, y1 - 10)),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.65,
                         (255, 0, 0),
                         2,
                     )
-                    last_text = f"Son tespit: {class_name} | {conf:.2%}"
+                    last_text = f"Son tespit: {decision_text} | {conf:.2%}"
 
             return annotated, last_text
         except Exception as e:
@@ -800,7 +1808,7 @@ class MainWindow(QMainWindow):
         self.live_stop_requested = False
 
     # =========================================================
-    # EGITIM METODLARI
+    # EGITIM METODLARI - KATEGORI / ICERIK
     # =========================================================
 
     def _training_root(self) -> Path:
@@ -813,40 +1821,70 @@ class MainWindow(QMainWindow):
             return ["default"]
 
         categories = []
-        for item in training_data_dir.iterdir():
-            if item.is_dir() and not item.name.startswith("."):
-                if (item / "images").exists() and (item / "labels").exists():
-                    categories.append(item.name)
+        for item in sorted(training_data_dir.iterdir()):
+            if not item.is_dir() or item.name.startswith("."):
+                continue
+
+            if item.name.lower() == "models":
+                continue
+
+            if "backup" in item.name.lower():
+                continue
+
+            if (item / "images").exists() and (item / "labels").exists():
+                categories.append(item.name)
 
         return categories if categories else ["default"]
+
+    def _refresh_combo_items(self, combo, items):
+        current_text = combo.currentText()
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItems(items)
+        index = combo.findText(current_text)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+        elif combo.count() > 0:
+            combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+
+    def _refresh_combined_source_list(self):
+        """Birlesik egitim kaynak kategorilerini yenile"""
+        if not hasattr(self, "combined_source_categories_list"):
+            return
+
+        categories = self._get_available_categories()
+        self.combined_source_categories_list.clear()
+
+        for category in categories:
+            lower_name = category.lower()
+
+            if lower_name == "models":
+                continue
+            if lower_name == "weapon_dataset":
+                continue
+            if "backup" in lower_name:
+                continue
+
+            self.combined_source_categories_list.addItem(category)
 
     def _refresh_all_category_combos(self):
         """Tum kategori combolarini yenile"""
         categories = self._get_available_categories()
 
         if hasattr(self, "upload_category_combo"):
-            current_text = self.upload_category_combo.currentText()
-            self.upload_category_combo.clear()
-            self.upload_category_combo.addItems(categories)
-            index = self.upload_category_combo.findText(current_text)
-            if index >= 0:
-                self.upload_category_combo.setCurrentIndex(index)
+            self._refresh_combo_items(self.upload_category_combo, categories)
 
         if hasattr(self, "training_category_combo"):
-            current_text = self.training_category_combo.currentText()
-            self.training_category_combo.clear()
-            self.training_category_combo.addItems(categories)
-            index = self.training_category_combo.findText(current_text)
-            if index >= 0:
-                self.training_category_combo.setCurrentIndex(index)
+            self._refresh_combo_items(self.training_category_combo, categories)
 
         if hasattr(self, "content_category_combo"):
-            current_text = self.content_category_combo.currentText()
-            self.content_category_combo.clear()
-            self.content_category_combo.addItems(categories)
-            index = self.content_category_combo.findText(current_text)
-            if index >= 0:
-                self.content_category_combo.setCurrentIndex(index)
+            self._refresh_combo_items(self.content_category_combo, categories)
+
+        if hasattr(self, "analysis_category_combo"):
+            self._refresh_combo_items(self.analysis_category_combo, categories)
+
+        self._refresh_combined_source_list()
 
     def refresh_upload_categories(self):
         self._refresh_all_category_combos()
@@ -859,6 +1897,10 @@ class MainWindow(QMainWindow):
     def refresh_content_categories(self):
         self._refresh_all_category_combos()
         self.log("Icerik kategorileri yenilendi")
+
+    def refresh_analysis_categories(self):
+        self._refresh_all_category_combos()
+        self.log("Analiz kategorileri yenilendi")
 
     def browse_training_images(self):
         """Egitim resimlerini yukle"""
@@ -985,12 +2027,18 @@ class MainWindow(QMainWindow):
 
     def refresh_categories_list(self):
         """Kategori listesini yenile"""
+        if not hasattr(self, "categories_list"):
+            return
+
         self.categories_list.clear()
         for cat in self._get_available_categories():
             self.categories_list.addItem(cat)
 
     def refresh_content_display(self):
         """Icerigi yenile"""
+        if not hasattr(self, "content_category_combo"):
+            return
+
         category = self.content_category_combo.currentText()
         split = self.content_split_combo.currentText()
 
@@ -1226,8 +2274,103 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Hata", f"Silme hatasi: {e}")
 
+    # =========================================================
+    # EGITIM METODLARI - PROGRESS / WORKER
+    # =========================================================
+
+    def _set_training_busy(self, busy: bool):
+        self.training_task_running = busy
+
+        if hasattr(self, "train_btn"):
+            self.train_btn.setEnabled(not busy)
+
+        if hasattr(self, "training_progress"):
+            self.training_progress.setVisible(True)
+            if busy:
+                self.training_progress.setValue(0)
+
+        if hasattr(self, "training_progress_label"):
+            self.training_progress_label.setText("Calisiyor..." if busy else "Hazir")
+
+    def _append_training_log(self, message: str):
+        if hasattr(self, "training_log"):
+            self.training_log.append(str(message))
+
+    def on_training_progress_update(self, percent: int, message: str):
+        if hasattr(self, "training_progress"):
+            self.training_progress.setVisible(True)
+
+            if percent >= 0:
+                percent = max(0, min(100, int(percent)))
+                self.training_progress.setValue(percent)
+
+        if hasattr(self, "training_progress_label"):
+            if percent >= 0:
+                self.training_progress_label.setText(f"%{percent} - {message}")
+            else:
+                self.training_progress_label.setText(message)
+
+        self._append_training_log(f"[{percent}] {message}")
+
+    def _start_training_worker(self, mode: str, payload: dict):
+        if self.training_task_running:
+            QMessageBox.warning(self, "Egitim Devam Ediyor", "Zaten devam eden bir egitim islemi var.")
+            return
+
+        if hasattr(self, "training_log"):
+            self.training_log.clear()
+
+        self._set_training_busy(True)
+
+        self.training_thread = QThread(self)
+        self.training_worker = TrainingTaskWorker(self.model_trainer, mode, payload)
+        self.training_worker.moveToThread(self.training_thread)
+
+        self.training_thread.started.connect(self.training_worker.run)
+        self.training_worker.progress_update.connect(self.on_training_progress_update)
+        self.training_worker.log_update.connect(self._append_training_log)
+        self.training_worker.task_complete.connect(self.on_training_task_complete)
+        self.training_worker.error_occurred.connect(self.on_training_task_error)
+        self.training_worker.finished.connect(self.training_thread.quit)
+        self.training_worker.finished.connect(self.training_worker.deleteLater)
+        self.training_thread.finished.connect(self.training_thread.deleteLater)
+        self.training_thread.finished.connect(self._cleanup_training_worker)
+
+        self.training_thread.start()
+
+    def on_training_task_complete(self, message: str):
+        self._append_training_log(message)
+
+        if hasattr(self, "training_progress"):
+            self.training_progress.setVisible(True)
+            self.training_progress.setValue(100)
+
+        if hasattr(self, "training_progress_label"):
+            self.training_progress_label.setText("Tamamlandi")
+
+        QMessageBox.information(self, "Basarili", message)
+        self.log(message)
+
+    def on_training_task_error(self, error_msg: str):
+        self._append_training_log(f"HATA: {error_msg}")
+
+        if hasattr(self, "training_progress_label"):
+            self.training_progress_label.setText("Hata")
+
+        QMessageBox.critical(self, "Egitim Hatasi", f"Islem basarisiz:\n{error_msg}")
+        self.log(f"Egitim hatasi: {error_msg}")
+
+    def _cleanup_training_worker(self):
+        self.training_worker = None
+        self.training_thread = None
+        self._set_training_busy(False)
+
+    # =========================================================
+    # EGITIM METODLARI - KATEGORI BAZLI EGITIM
+    # =========================================================
+
     def start_training(self):
-        """Model egitimini baslat"""
+        """Kategori bazli model egitimini baslat"""
         category = self.training_category_combo.currentText()
 
         if category == "default":
@@ -1235,8 +2378,16 @@ class MainWindow(QMainWindow):
             return
 
         category_path = self._training_root() / category
-        train_images = list((category_path / "images" / "train").glob("*")) if (category_path / "images" / "train").exists() else []
-        train_labels = list((category_path / "labels" / "train").glob("*.txt")) if (category_path / "labels" / "train").exists() else []
+        train_images = (
+            list((category_path / "images" / "train").glob("*"))
+            if (category_path / "images" / "train").exists()
+            else []
+        )
+        train_labels = (
+            list((category_path / "labels" / "train").glob("*.txt"))
+            if (category_path / "labels" / "train").exists()
+            else []
+        )
 
         if len(train_images) == 0 or len(train_labels) == 0:
             QMessageBox.warning(
@@ -1247,74 +2398,227 @@ class MainWindow(QMainWindow):
             )
             return
 
-        self.train_btn.setEnabled(False)
-        self.training_progress.setVisible(True)
-        self.training_progress.setValue(0)
+        reply = QMessageBox.question(
+            self,
+            "Kategori Bazli Egitim",
+            f"'{category}' kategorisi egitilecek.\n\n"
+            "Bu test amacli egitimdir. Nihai model icin Birlesik Final Model Egitimi onerilir.\n\n"
+            "Devam etmek istiyor musunuz?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        payload = {
+            "category": category,
+            "epochs": self.epoch_spinbox.value(),
+            "batch_size": self.batch_spinbox.value(),
+            "imgsz": self.imgsz_spinbox.value(),
+            "class_names": list(getattr(config, "CLASS_NAMES", ["obus"])),
+        }
+
+        self._start_training_worker("category_train", payload)
+
+    # =========================================================
+    # EGITIM METODLARI - BIRLESIK DATASET / FINAL MODEL
+    # =========================================================
+
+    def _get_combined_dataset_name(self) -> str:
+        if hasattr(self, "combined_dataset_name_input"):
+            name = self.combined_dataset_name_input.text().strip()
+            if name:
+                return str(name)
+        return "weapon_dataset"
+
+    def _get_selected_combined_sources(self):
+        if not hasattr(self, "combined_source_categories_list"):
+            return []
+
+        selected_items = self.combined_source_categories_list.selectedItems()
+
+        if selected_items:
+            return [item.text() for item in selected_items]
+
+        sources = []
+        for i in range(self.combined_source_categories_list.count()):
+            item = self.combined_source_categories_list.item(i)
+            sources.append(item.text())
+
+        return sources
+
+    def prepare_combined_dataset_from_ui(self):
+        """UI uzerinden secilen kaynaklarla birlesik dataset hazirla"""
+        source_categories = self._get_selected_combined_sources()
+        target_category = self._get_combined_dataset_name()
+
+        if not source_categories:
+            QMessageBox.warning(self, "Kaynak Yok", "Birlesik dataset icin en az bir kaynak kategori secin.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Birlesik Dataset Hazirla",
+            f"Kaynak kategoriler:\n{', '.join(source_categories)}\n\n"
+            f"Hedef dataset:\n{target_category}\n\n"
+            "Hedef dataset varsa silinip yeniden olusturulacak.\n"
+            "Devam etmek istiyor musunuz?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        payload = {
+            "source_categories": source_categories,
+            "target_category": target_category,
+            "class_names": list(getattr(config, "CLASS_NAMES", ["obus"])),
+        }
+
+        self._start_training_worker("prepare_combined", payload)
+
+    def start_combined_training(self):
+        """Tum secili kategorilerden tek final model egit"""
+        source_categories = self._get_selected_combined_sources()
+        target_category = self._get_combined_dataset_name()
+
+        if not source_categories:
+            QMessageBox.warning(self, "Kaynak Yok", "Birlesik final model icin en az bir kaynak kategori secin.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Birlesik Final Model Egitimi",
+            f"Kaynak kategoriler:\n{', '.join(source_categories)}\n\n"
+            f"Hedef dataset:\n{target_category}\n\n"
+            "Tum secili kategoriler tek dataset altinda toplanacak ve final model egitilecek.\n"
+            "Egitim sonunda model models/howitzer_detector.pt olarak kaydedilecek.\n\n"
+            "Devam etmek istiyor musunuz?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        payload = {
+            "source_categories": source_categories,
+            "target_category": target_category,
+            "epochs": self.epoch_spinbox.value(),
+            "batch_size": self.batch_spinbox.value(),
+            "imgsz": self.imgsz_spinbox.value(),
+            "class_names": list(getattr(config, "CLASS_NAMES", ["obus"])),
+        }
+
+        self._start_training_worker("combined_train", payload)
+
+    # =========================================================
+    # EGITIM METODLARI - DATASET ANALIZ
+    # =========================================================
+
+    def _class_display_name(self, class_name: str) -> str:
+        func = getattr(config, "get_class_display_name", None)
+        if callable(func):
+            return str(func(class_name))
+        return str(class_name)
+
+    def _format_distribution_text(self, distribution: dict) -> str:
+        category = distribution.get("category", "N/A")
+        total_files = distribution.get("total_files", 0)
+        total_lines = distribution.get("total_lines", 0)
+        invalid_lines = distribution.get("invalid_lines", 0)
+        named_distribution = distribution.get("named_distribution", {})
+        split_stats = distribution.get("split_stats", {})
+
+        lines = []
+        lines.append(f"Kategori: {category}")
+        lines.append(f"Toplam label dosyasi: {total_files}")
+        lines.append(f"Toplam kutu/satir: {total_lines}")
+        lines.append(f"Gecersiz satir: {invalid_lines}")
+        lines.append("")
+        lines.append("Split dagilimi:")
+
+        for split, stats in split_stats.items():
+            lines.append(
+                f"  [{split}] files={stats.get('files', 0)}, "
+                f"lines={stats.get('lines', 0)}, "
+                f"invalid={stats.get('invalid_lines', 0)}"
+            )
+
+        lines.append("")
+        lines.append("Sinif dagilimi:")
+
+        if not named_distribution:
+            lines.append("  Sinif satiri bulunamadi.")
+        else:
+            for cls_id, item in named_distribution.items():
+                class_name = item.get("class_name", f"unknown_{cls_id}")
+                count = item.get("count", 0)
+                display_name = self._class_display_name(str(class_name))
+                lines.append(f"  {cls_id:>2} | {class_name:<25} | {display_name:<25} | {count}")
+
+        return "\n".join(lines)
+
+    def _write_dataset_analysis(self, text: str):
+        if hasattr(self, "dataset_analysis_text"):
+            self.dataset_analysis_text.setPlainText(text)
+        else:
+            QMessageBox.information(self, "Dataset Analiz", text)
+
+    def analyze_selected_training_dataset(self):
+        """Secili kategoriyi analiz et"""
+        if not hasattr(self, "analysis_category_combo"):
+            QMessageBox.warning(self, "Hata", "Analiz kategori secimi bulunamadi.")
+            return
+
+        category = self.analysis_category_combo.currentText().strip()
+        if not category:
+            QMessageBox.warning(self, "Hata", "Analiz edilecek kategori yok.")
+            return
 
         try:
-            self.training_log.clear()
-            self.training_log.append(f"Kategori '{category}' icin model egitimi baslaniyor...")
-
-            class_names = getattr(config, "CLASS_NAMES", ["obus"])
-            self.training_log.append(f"Siniflar: {class_names}")
-            self.training_log.append("Dataset YAML olusturuluyor...")
-
-            yaml_path = self.model_trainer.create_dataset_yaml(
+            distribution = self.model_trainer.get_label_distribution(
                 category=category,
-                class_names=class_names,
+                class_names=list(getattr(config, "CLASS_NAMES", ["obus"])),
             )
-
-            if not yaml_path:
-                raise RuntimeError("Dataset YAML olusturulamadi.")
-
-            self.training_log.append(f"YAML hazir: {yaml_path}")
-            self.training_log.append("Dataset dogrulaniyor...")
-
-            validation = self.model_trainer.validate_dataset(
-                category=category,
-                class_names=class_names,
-            )
-
-            for split, split_stats in validation.get("stats", {}).items():
-                self.training_log.append(
-                    f"[{split}] images={split_stats.get('images', 0)}, "
-                    f"labels={split_stats.get('labels', 0)}, "
-                    f"invalid_lines={split_stats.get('invalid_label_lines', 0)}"
-                )
-
-            if not validation.get("ok", False):
-                first_errors = validation.get("errors", [])[:10]
-                error_text = "\n".join(first_errors) if first_errors else "Bilinmeyen dataset hatasi"
-                self.training_log.append("Dataset dogrulama basarisiz:")
-                self.training_log.append(error_text)
-                raise RuntimeError(error_text)
-
-            self.training_log.append("Model egitimi baslaniyor...")
-
-            trained_model_path = self.model_trainer.train_model(
-                category=category,
-                epochs=self.epoch_spinbox.value(),
-                batch_size=self.batch_spinbox.value(),
-                imgsz=self.imgsz_spinbox.value(),
-                progress_callback=lambda e, m: self.training_log.append(f"[Epoch {e}] {m}"),
-                class_names=class_names,
-            )
-
-            if trained_model_path:
-                self.training_log.append(f"Egitim tamamlandi! Model: {trained_model_path}")
-                self.training_progress.setValue(100)
-                QMessageBox.information(self, "Basarili", "Model egitimi tamamlandi!")
-                self.log(f"Model egitimi tamamlandi: {category}")
-            else:
-                raise RuntimeError("Egitim tamamlanamadi veya model kaydedilemedi.")
-
+            self._write_dataset_analysis(self._format_distribution_text(distribution))
         except Exception as e:
-            self.training_log.append(f"HATA: {e}")
-            QMessageBox.critical(self, "Egitim Hatasi", f"Egitim basarisiz: {e}")
-            self.log(f"Egitim hatasi: {e}")
-        finally:
-            self.train_btn.setEnabled(True)
-            self.training_progress.setVisible(False)
+            QMessageBox.critical(self, "Analiz Hatasi", str(e))
+
+    def analyze_combined_training_dataset(self):
+        """Birlesik dataset'i analiz et"""
+        category = self._get_combined_dataset_name()
+
+        try:
+            distribution = self.model_trainer.get_label_distribution(
+                category=category,
+                class_names=list(getattr(config, "CLASS_NAMES", ["obus"])),
+            )
+            self._write_dataset_analysis(self._format_distribution_text(distribution))
+        except Exception as e:
+            QMessageBox.critical(self, "Analiz Hatasi", str(e))
+
+    def analyze_all_training_datasets(self):
+        """Tum kategorileri analiz et"""
+        try:
+            chunks = []
+            for category in self._get_available_categories():
+                if category.lower() == "models" or "backup" in category.lower():
+                    continue
+
+                distribution = self.model_trainer.get_label_distribution(
+                    category=category,
+                    class_names=list(getattr(config, "CLASS_NAMES", ["obus"])),
+                )
+                chunks.append(self._format_distribution_text(distribution))
+
+            text = "\n\n" + ("-" * 80) + "\n\n"
+            self._write_dataset_analysis(text.join(chunks) if chunks else "Analiz edilecek kategori bulunamadi.")
+        except Exception as e:
+            QMessageBox.critical(self, "Analiz Hatasi", str(e))
+
+    # =========================================================
+    # LOG
+    # =========================================================
 
     def log(self, message: str):
         """Gunluge mesaj ekle"""
